@@ -16,6 +16,11 @@ class MainActivity : FlutterActivity() {
     private val progressChannelName = "downoader/ytdlp/progress"
     private var eventSink: EventChannel.EventSink? = null
 
+    // android-client is lichter dan de standaard web-client (geen JS-signature
+    // extractie nodig) en dus merkbaar sneller bij metadata ophalen en downloaden.
+    private val speedOptions = listOf("--extractor-args", "youtube:player_client=android")
+    private val concurrencyOptions = listOf("--concurrent-fragments", "4")
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
@@ -34,11 +39,15 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "init" -> handleInit(result)
-                    "probe" -> handleQuery(call.argument("url")!!, listOf("--flat-playlist", "-J"), result)
-                    "formats" -> handleQuery(call.argument("url")!!, listOf("--no-playlist", "-J"), result)
+                    "probe" -> handleQuery(call.argument("url")!!, listOf("--flat-playlist", "-J") + speedOptions, result)
+                    "formats" -> handleQuery(call.argument("url")!!, listOf("--no-playlist", "-J") + speedOptions, result)
                     "download" -> handleDownload(call, result)
                     "openFile" -> {
                         openFile(call.argument("path")!!)
+                        result.success(null)
+                    }
+                    "openFolder" -> {
+                        openFolder(call.argument("path")!!)
                         result.success(null)
                     }
                     else -> result.notImplemented()
@@ -51,6 +60,13 @@ class MainActivity : FlutterActivity() {
             try {
                 YoutubeDL.getInstance().init(applicationContext)
                 FFmpeg.init(applicationContext)
+                try {
+                    // YouTube wijzigt regelmatig zijn anti-bot checks; een verouderde
+                    // meegeleverde yt-dlp-versie geeft dan 403 op elke download.
+                    YoutubeDL.getInstance().updateYoutubeDL(applicationContext)
+                } catch (_: Exception) {
+                    // Geen netwerk of al up-to-date: doorgaan met de meegeleverde versie.
+                }
                 runOnUiThread { result.success(null) }
             } catch (e: Exception) {
                 runOnUiThread { result.error("INIT_FAILED", e.message, null) }
@@ -86,6 +102,7 @@ class MainActivity : FlutterActivity() {
                 request.addOption("--no-mtime")
                 request.addOption("--print", "after_move:FILEPATH::%(filepath)s")
                 request.addOption(if (isPlaylist) "--yes-playlist" else "--no-playlist")
+                (speedOptions + concurrencyOptions).forEach { request.addOption(it) }
                 if (format == "mp3") {
                     request.addOption("-x")
                     request.addOption("--audio-format", "mp3")
@@ -117,5 +134,21 @@ class MainActivity : FlutterActivity() {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         startActivity(intent)
+    }
+
+    private fun openFolder(path: String) {
+        val parent = File(path).parentFile ?: File(path)
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", parent)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "resource/folder")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            // Geen bestandsbeheerder die mappen kan openen: open het bestand zelf.
+            openFile(path)
+        }
     }
 }

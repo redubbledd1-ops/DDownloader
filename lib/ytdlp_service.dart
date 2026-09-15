@@ -2,14 +2,36 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:archive/archive.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'models.dart';
 
 const String ytDlpPath = r'C:\Program Files\yt-dlpd.exe';
 
+// Portable, statisch gelinkte Windows-build (GPL, BtbN's altijd-actuele
+// "latest" release-tag). Gebruikt als het systeem geen eigen ffmpeg heeft.
+const String _ffmpegDownloadUrl =
+    'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip';
+
+const MethodChannel _androidChannel = MethodChannel('downoader/ytdlp');
+const EventChannel _androidProgressChannel = EventChannel(
+  'downoader/ytdlp/progress',
+);
+
 final RegExp _percentRegex = RegExp(r'\[download\]\s+([\d.]+)%');
 const String _filepathMarker = 'FILEPATH::';
+
+// android-client is lichter dan de standaard web-client (geen JS-signature
+// extractie nodig) en dus merkbaar sneller bij metadata ophalen en downloaden.
+const List<String> _speedArgs = [
+  '--extractor-args',
+  'youtube:player_client=android',
+];
+const List<String> _concurrencyArgs = ['--concurrent-fragments', '4'];
 
 class YtDlpException implements Exception {
   final String message;
@@ -21,40 +43,159 @@ class YtDlpException implements Exception {
 class PlaylistProbeResult {
   final bool isPlaylist;
   final int entryCount;
-  PlaylistProbeResult({required this.isPlaylist, required this.entryCount});
+  final Map<String, dynamic> data;
+  PlaylistProbeResult({
+    required this.isPlaylist,
+    required this.entryCount,
+    required this.data,
+  });
 }
 
 class YtDlpService {
-  Future<bool> exeExists() => File(ytDlpPath).exists();
+  bool _androidReady = false;
+
+  String get unavailableMessage => Platform.isAndroid
+      ? 'yt-dlp kon niet worden geïnitialiseerd op dit toestel.'
+      : 'yt-dlp.exe niet gevonden op $ytDlpPath';
+
+  Future<bool> exeExists() async {
+    if (Platform.isAndroid) {
+      if (_androidReady) return true;
+      try {
+        await _androidChannel.invokeMethod('init');
+        _androidReady = true;
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+    return File(ytDlpPath).exists();
+  }
+
+  String? _bundledFfmpegDir;
+
+  Future<String?> _resolveBundledFfmpegDir() async {
+    if (_bundledFfmpegDir != null) return _bundledFfmpegDir;
+    final supportDir = await getApplicationSupportDirectory();
+    final dir = p.join(supportDir.path, 'ffmpeg');
+    if (await File(p.join(dir, 'ffmpeg.exe')).exists()) {
+      _bundledFfmpegDir = dir;
+      return dir;
+    }
+    return null;
+  }
+
+  // ffmpeg is nodig voor mp3-extractie en voor het samenvoegen van losse
+  // video/audio-streams. Android heeft dit al gebundeld via youtubedl-android.
+  // Op Windows/desktop: gebruik systeem-ffmpeg als aanwezig, anders eenmalig
+  // een portable build downloaden naar de app-datamap. Retourneert de map
+  // om als --ffmpeg-location mee te geven, of null (systeem-PATH is prima).
+  Future<String?> ensureFfmpeg({void Function(String)? onLog}) async {
+    if (Platform.isAndroid) return null;
+
+    final bundled = await _resolveBundledFfmpegDir();
+    if (bundled != null) return bundled;
+
+    try {
+      final result = await Process.run('ffmpeg', ['-version']);
+      if (result.exitCode == 0) return null;
+    } catch (_) {
+      // niet op PATH, hieronder bundelen.
+    }
+
+    onLog?.call('ffmpeg niet gevonden, portable versie downloaden...');
+    final supportDir = await getApplicationSupportDirectory();
+    final targetDir = Directory(p.join(supportDir.path, 'ffmpeg'));
+    await targetDir.create(recursive: true);
+
+    final client = HttpClient();
+    try {
+      final request = await client.getUrl(Uri.parse(_ffmpegDownloadUrl));
+      final response = await request.close();
+      if (response.statusCode != 200) {
+        throw YtDlpException(
+          'ffmpeg-download mislukt (HTTP ${response.statusCode}).',
+        );
+      }
+      final total = response.contentLength;
+      final bytes = <int>[];
+      var received = 0;
+      var lastPct = -1;
+      await for (final chunk in response) {
+        bytes.addAll(chunk);
+        received += chunk.length;
+        if (total > 0) {
+          final pct = (received / total * 100).floor();
+          if (pct != lastPct && pct % 10 == 0) {
+            lastPct = pct;
+            onLog?.call('ffmpeg downloaden... $pct%');
+          }
+        }
+      }
+
+      onLog?.call('ffmpeg uitpakken...');
+      final archive = ZipDecoder().decodeBytes(bytes);
+      var foundFfmpeg = false;
+      var foundFfprobe = false;
+      for (final file in archive.files) {
+        if (!file.isFile) continue;
+        final name = file.name.replaceAll('\\', '/');
+        if (name.endsWith('/bin/ffmpeg.exe')) {
+          await File(
+            p.join(targetDir.path, 'ffmpeg.exe'),
+          ).writeAsBytes(file.content as List<int>);
+          foundFfmpeg = true;
+        } else if (name.endsWith('/bin/ffprobe.exe')) {
+          await File(
+            p.join(targetDir.path, 'ffprobe.exe'),
+          ).writeAsBytes(file.content as List<int>);
+          foundFfprobe = true;
+        }
+      }
+      if (!foundFfmpeg || !foundFfprobe) {
+        throw YtDlpException(
+          'ffmpeg.exe/ffprobe.exe niet gevonden in download.',
+        );
+      }
+      onLog?.call('ffmpeg geïnstalleerd.');
+      _bundledFfmpegDir = targetDir.path;
+      return targetDir.path;
+    } finally {
+      client.close(force: true);
+    }
+  }
 
   Future<PlaylistProbeResult> probePlaylist(String url) async {
-    final result = await Process.run(
-      ytDlpPath,
-      ['--flat-playlist', '-J', url],
-      stdoutEncoding: utf8,
-      stderrEncoding: utf8,
-    );
-    if (result.exitCode != 0) {
-      throw YtDlpException(_shortError(result.stderr.toString()));
-    }
-    final Map<String, dynamic> data = jsonDecode(result.stdout.toString());
+    final Map<String, dynamic> data = Platform.isAndroid
+        ? jsonDecode(await _androidQuery(url, 'probe'))
+        : await _desktopQuery(url, [
+            '--flat-playlist',
+            '-J',
+            ..._speedArgs,
+            url,
+          ]);
     final entries = data['entries'];
     final isPlaylist = data['_type'] == 'playlist' || entries is List;
     final count = entries is List ? entries.length : 1;
-    return PlaylistProbeResult(isPlaylist: isPlaylist, entryCount: count);
+    return PlaylistProbeResult(
+      isPlaylist: isPlaylist,
+      entryCount: count,
+      data: data,
+    );
   }
 
   Future<List<FormatInfo>> fetchFormats(String url) async {
-    final result = await Process.run(
-      ytDlpPath,
-      ['--no-playlist', '-J', url],
-      stdoutEncoding: utf8,
-      stderrEncoding: utf8,
-    );
-    if (result.exitCode != 0) {
-      throw YtDlpException(_shortError(result.stderr.toString()));
-    }
-    final Map<String, dynamic> data = jsonDecode(result.stdout.toString());
+    final Map<String, dynamic> data = Platform.isAndroid
+        ? jsonDecode(await _androidQuery(url, 'formats'))
+        : await _desktopQuery(url, ['--no-playlist', '-J', ..._speedArgs, url]);
+    return parseFormats(data);
+  }
+
+  // Bij een gewone (niet-playlist) URL geeft de --flat-playlist probe-call al
+  // dezelfde volledige extractie terug als een losse formats-call zou doen.
+  // Die data hergebruiken we hier, zodat we geen tweede yt-dlp-aanroep (en
+  // dus geen tweede netwerk-rondtrip) nodig hebben.
+  List<FormatInfo> parseFormats(Map<String, dynamic> data) {
     final List formats = data['formats'] ?? [];
     var infos = formats
         .whereType<Map>()
@@ -75,21 +216,139 @@ class YtDlpService {
     return infos;
   }
 
+  Future<String> _androidQuery(String url, String method) async {
+    try {
+      final result = await _androidChannel.invokeMethod<String>(method, {
+        'url': url,
+      });
+      return result ?? '{}';
+    } on PlatformException catch (e) {
+      throw YtDlpException(_shortError(e.message ?? 'Onbekende fout'));
+    }
+  }
+
+  Future<Map<String, dynamic>> _desktopQuery(
+    String url,
+    List<String> args,
+  ) async {
+    final result = await Process.run(
+      ytDlpPath,
+      args,
+      stdoutEncoding: utf8,
+      stderrEncoding: utf8,
+    );
+    if (result.exitCode != 0) {
+      throw YtDlpException(_shortError(result.stderr.toString()));
+    }
+    return jsonDecode(result.stdout.toString());
+  }
+
   Stream<DownloadEvent> download({
     required String url,
     required String outputDir,
     required bool isPlaylist,
     required OutputFormat format,
     String? formatId,
+    String? ffmpegDir,
+  }) {
+    return Platform.isAndroid
+        ? _downloadAndroid(
+            url: url,
+            outputDir: outputDir,
+            isPlaylist: isPlaylist,
+            format: format,
+            formatId: formatId,
+          )
+        : _downloadDesktop(
+            url: url,
+            outputDir: outputDir,
+            isPlaylist: isPlaylist,
+            format: format,
+            formatId: formatId,
+            ffmpegDir: ffmpegDir,
+          );
+  }
+
+  Stream<DownloadEvent> _downloadAndroid({
+    required String url,
+    required String outputDir,
+    required bool isPlaylist,
+    required OutputFormat format,
+    String? formatId,
+  }) {
+    final controller = StreamController<DownloadEvent>();
+    final progressSub = _androidProgressChannel.receiveBroadcastStream().listen(
+      (event) {
+        final map = Map<String, dynamic>.from(event as Map);
+        final line = map['line'] as String? ?? '';
+        if (line.contains(_filepathMarker)) {
+          final path = line
+              .substring(line.indexOf(_filepathMarker) + _filepathMarker.length)
+              .trim();
+          if (path.isNotEmpty) controller.add(FileDownloadedEvent(path));
+          return;
+        }
+        if (line.isNotEmpty) controller.add(LogEvent(line));
+        final progress = map['progress'];
+        if (progress is num && progress >= 0) {
+          controller.add(ProgressEvent(progress.toDouble()));
+        }
+        if (line.startsWith('[download] Destination:') ||
+            line.startsWith('[ExtractAudio]') ||
+            line.startsWith('[Merger]')) {
+          controller.add(StatusEvent(line));
+        }
+      },
+    );
+
+    () async {
+      try {
+        await _androidChannel.invokeMethod('download', {
+          'url': url,
+          'outputDir': outputDir,
+          'isPlaylist': isPlaylist,
+          'format': format == OutputFormat.mp3 ? 'mp3' : 'mp4',
+          'formatId': formatId,
+        });
+        controller.add(DownloadDoneEvent(success: true));
+      } on PlatformException catch (e) {
+        controller.add(LogEvent('FOUT: ${e.message ?? e.toString()}'));
+        controller.add(
+          DownloadDoneEvent(
+            success: false,
+            error: _shortError(e.message ?? 'Onbekende fout'),
+          ),
+        );
+      } finally {
+        await progressSub.cancel();
+        await controller.close();
+      }
+    }();
+
+    return controller.stream;
+  }
+
+  Stream<DownloadEvent> _downloadDesktop({
+    required String url,
+    required String outputDir,
+    required bool isPlaylist,
+    required OutputFormat format,
+    String? formatId,
+    String? ffmpegDir,
   }) async* {
     final outTemplate = p.join(outputDir, '%(title)s.%(ext)s');
     final args = <String>[
       url,
-      '-o', outTemplate,
+      '-o',
+      outTemplate,
       '--newline',
       '--no-mtime',
-      '--print', 'after_move:$_filepathMarker%(filepath)s',
+      '--print',
+      'after_move:$_filepathMarker%(filepath)s',
       isPlaylist ? '--yes-playlist' : '--no-playlist',
+      ..._speedArgs,
+      ..._concurrencyArgs,
+      if (ffmpegDir != null) ...['--ffmpeg-location', ffmpegDir],
     ];
 
     if (format == OutputFormat.mp3) {
@@ -111,8 +370,11 @@ class YtDlpService {
         .listen((line) => stderrBuffer.writeln(line));
 
     await for (final line in stdoutLines) {
+      if (line.isNotEmpty) yield LogEvent(line);
       if (line.contains(_filepathMarker)) {
-        final path = line.substring(line.indexOf(_filepathMarker) + _filepathMarker.length).trim();
+        final path = line
+            .substring(line.indexOf(_filepathMarker) + _filepathMarker.length)
+            .trim();
         if (path.isNotEmpty) {
           yield FileDownloadedEvent(path);
         }
@@ -135,10 +397,38 @@ class YtDlpService {
     await stderrSub.cancel();
 
     if (exitCode != 0) {
-      yield DownloadDoneEvent(success: false, error: _shortError(stderrBuffer.toString()));
+      for (final line in stderrBuffer.toString().split('\n')) {
+        if (line.trim().isNotEmpty) yield LogEvent('FOUT: $line');
+      }
+      yield DownloadDoneEvent(
+        success: false,
+        error: _shortError(stderrBuffer.toString()),
+      );
     } else {
       yield DownloadDoneEvent(success: true);
     }
+  }
+
+  Future<void> openFile(String path) async {
+    if (Platform.isAndroid) {
+      await _androidChannel.invokeMethod('openFile', {'path': path});
+      return;
+    }
+    final ok = await launchUrl(Uri.file(path));
+    if (!ok)
+      throw YtDlpException(
+        'Geen standaardprogramma gevonden om dit bestand te openen.',
+      );
+  }
+
+  Future<void> openFolder(String path) async {
+    if (Platform.isAndroid) {
+      await _androidChannel.invokeMethod('openFolder', {'path': path});
+      return;
+    }
+    await Process.start('explorer.exe', [
+      p.dirname(path),
+    ], mode: ProcessStartMode.detached);
   }
 
   String _shortError(String stderr) {

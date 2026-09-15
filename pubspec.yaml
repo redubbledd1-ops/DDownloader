@@ -37,6 +37,9 @@ dependencies:
   shared_preferences: ^2.5.3
   file_picker: ^10.3.4
   path: ^1.9.0
+  path_provider: ^2.1.5
+  url_launcher: ^6.3.1
+  archive: ^4.0.0
 
 dev_dependencies:
   flutter_test:
@@ -48,6 +51,21 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.3
+  flutter_native_splash: ^2.4.4
+
+flutter_launcher_icons:
+  android: true
+  image_path: "Download.icoon.png"
+  adaptive_icon_background: "#0A0F1E"
+  adaptive_icon_foreground: "Download.icoon.png"
+
+flutter_native_splash:
+  color: "#0A0F1E"
+  image: "Download.icoon.png"
+  android_12:
+    color: "#0A0F1E"
+    image: "Download.icoon.png"
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

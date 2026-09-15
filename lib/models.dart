@@ -1,5 +1,7 @@
 enum OutputFormat { mp4, mp3 }
 
+enum PlaylistMode { ask, playlist, single }
+
 class FormatInfo {
   final String formatId;
   final String ext;
@@ -43,8 +45,10 @@ class FormatInfo {
   // Veel extractors laten vcodec/acodec gewoon weg i.p.v. "none" te zetten
   // wanneer het niet bekend is. Onbekend betekenen we als "waarschijnlijk aanwezig",
   // anders vallen te veel sites (niet-YouTube) onterecht buiten de lijst.
-  bool get hasAudio => acodec == null || (acodec != 'none' && acodec!.isNotEmpty);
-  bool get hasVideo => vcodec == null || (vcodec != 'none' && vcodec!.isNotEmpty);
+  bool get hasAudio =>
+      acodec == null || (acodec != 'none' && acodec!.isNotEmpty);
+  bool get hasVideo =>
+      vcodec == null || (vcodec != 'none' && vcodec!.isNotEmpty);
 
   String get sizeLabel {
     if (filesizeBytes == null) return 'onbekend';
@@ -57,7 +61,9 @@ class FormatInfo {
   }
 
   String get label {
-    final res = height != null ? '${height}p' : (note.isEmpty ? formatId : note);
+    final res = height != null
+        ? '${height}p'
+        : (note.isEmpty ? formatId : note);
     return '$res  ·  $ext  ·  $sizeLabel';
   }
 }
@@ -67,9 +73,28 @@ class DownloadedItem {
   final bool isPlaylist;
   final OutputFormat format;
 
-  DownloadedItem({required this.path, required this.isPlaylist, required this.format});
+  DownloadedItem({
+    required this.path,
+    required this.isPlaylist,
+    required this.format,
+  });
 
   String get fileName => path.split(RegExp(r'[\\/]')).last;
+
+  Map<String, dynamic> toJson() => {
+    'path': path,
+    'isPlaylist': isPlaylist,
+    'format': format.name,
+  };
+
+  factory DownloadedItem.fromJson(Map<String, dynamic> json) => DownloadedItem(
+    path: json['path'] as String,
+    isPlaylist: json['isPlaylist'] as bool? ?? false,
+    format: OutputFormat.values.firstWhere(
+      (f) => f.name == json['format'],
+      orElse: () => OutputFormat.mp4,
+    ),
+  );
 }
 
 enum FileFilter { all, video, audio }
@@ -95,4 +120,9 @@ class DownloadDoneEvent extends DownloadEvent {
   final bool success;
   final String? error;
   DownloadDoneEvent({required this.success, this.error});
+}
+
+class LogEvent extends DownloadEvent {
+  final String message;
+  LogEvent(this.message);
 }

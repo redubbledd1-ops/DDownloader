@@ -6,6 +6,7 @@ enum PlaylistMode { ask, playlist, single }
 /// een vaste hoogte = direct downloaden zonder dialoog (extentie + app).
 enum PreferredVideoQuality {
   ask,
+  max,
   p2160,
   p1440,
   p1080,
@@ -17,6 +18,7 @@ enum PreferredVideoQuality {
 
   int? get maxHeight => switch (this) {
     PreferredVideoQuality.ask => null,
+    PreferredVideoQuality.max => null,
     PreferredVideoQuality.p2160 => 2160,
     PreferredVideoQuality.p1440 => 1440,
     PreferredVideoQuality.p1080 => 1080,
@@ -29,6 +31,7 @@ enum PreferredVideoQuality {
 
   String get label => switch (this) {
     PreferredVideoQuality.ask => 'Altijd vragen',
+    PreferredVideoQuality.max => 'Max (beste beschikbaar)',
     PreferredVideoQuality.p2160 => '4K (2160p)',
     PreferredVideoQuality.p1440 => '1440p',
     PreferredVideoQuality.p1080 => '1080p',

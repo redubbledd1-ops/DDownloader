@@ -176,16 +176,36 @@ class Settings {
     await prefs.setString(_keyPlaylistMode, mode.name);
   }
 
-  /// Inbox van de browser-extentie: één pending download-opdracht.
+  /// Inbox van de browser-extentie: een wachtrij van pending opdrachten
+  /// (JSON-array, niet één enkel slot) — de extentie start bij elke
+  /// popup-actie een nieuw host-proces, dus twee snel-na-elkaar geschreven
+  /// jobs (bv. settings opslaan + meteen downloaden) zouden elkaar anders
+  /// kunnen overschrijven voordat deze poller ze leest. Haalt en verwijdert
+  /// steeds alleen de oudste job, de rest blijft staan voor de volgende poll.
   static Future<Map<String, dynamic>?> takeExtensionInbox() async {
     if (!Platform.isWindows) return null;
     final file = await extensionInboxFile();
     if (!await file.exists()) return null;
     try {
-      final data = jsonDecode(await file.readAsString());
-      await file.delete();
-      if (data is Map<String, dynamic>) return data;
-      if (data is Map) return data.cast<String, dynamic>();
+      final decoded = jsonDecode(await file.readAsString());
+      final jobs = <dynamic>[];
+      if (decoded is List) {
+        jobs.addAll(decoded);
+      } else if (decoded is Map) {
+        jobs.add(decoded);
+      }
+      if (jobs.isEmpty) {
+        await file.delete();
+        return null;
+      }
+      final first = jobs.removeAt(0);
+      if (jobs.isEmpty) {
+        await file.delete();
+      } else {
+        await file.writeAsString(jsonEncode(jobs));
+      }
+      if (first is Map<String, dynamic>) return first;
+      if (first is Map) return first.cast<String, dynamic>();
     } catch (_) {
       try {
         await file.delete();

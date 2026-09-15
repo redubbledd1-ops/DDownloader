@@ -128,13 +128,11 @@ Future<void> handleMessage(Map<String, dynamic> msg) async {
       }
       final updated = await writeSettings(patch.cast<String, dynamic>());
       // Push naar draaiende app zodat SharedPreferences synchroon blijft.
-      inboxFile().writeAsStringSync(
-        jsonEncode({
-          'type': 'settings',
-          'settings': updated,
-          'ts': DateTime.now().millisecondsSinceEpoch,
-        }),
-      );
+      appendToInbox({
+        'type': 'settings',
+        'settings': updated,
+        'ts': DateTime.now().millisecondsSinceEpoch,
+      });
       await writeMessage({'ok': true, 'settings': updated});
     case 'formats':
       final url = msg['url']?.toString() ?? '';
@@ -251,6 +249,28 @@ File prefsFile() => File('${appDataDir().path}\\shared_preferences.json');
 
 File inboxFile() => File('${appDataDir().path}\\extension_inbox.json');
 
+// De inbox is een JSON-array (wachtrij), niet één slot: anders kan een
+// settings-melding en een download-opdracht die vlak na elkaar geschreven
+// worden elkaar overschrijven voordat de app ze heeft gelezen (elke
+// popup-actie start een nieuw host-proces, dus dit is een echte
+// inter-process race, geen in-memory state).
+void appendToInbox(Map<String, dynamic> job) {
+  final file = inboxFile();
+  final jobs = <dynamic>[];
+  if (file.existsSync()) {
+    try {
+      final decoded = jsonDecode(file.readAsStringSync());
+      if (decoded is List) {
+        jobs.addAll(decoded);
+      } else if (decoded is Map) {
+        jobs.add(decoded);
+      }
+    } catch (_) {}
+  }
+  jobs.add(job);
+  file.writeAsStringSync(jsonEncode(jobs));
+}
+
 Map<String, dynamic> loadPrefsRaw() {
   final merged = <String, dynamic>{};
   // Oude builds schreven naar com.example\downoader; huidige ProductName is Downloader.
@@ -302,15 +322,13 @@ void recordDownloadedItem({
   savePrefsRaw(raw);
 
   try {
-    inboxFile().writeAsStringSync(
-      jsonEncode({
-        'type': 'downloaded',
-        'path': path,
-        'format': format,
-        'isPlaylist': isPlaylist,
-        'ts': DateTime.now().millisecondsSinceEpoch,
-      }),
-    );
+    appendToInbox({
+      'type': 'downloaded',
+      'path': path,
+      'format': format,
+      'isPlaylist': isPlaylist,
+      'ts': DateTime.now().millisecondsSinceEpoch,
+    });
   } catch (_) {}
 }
 
@@ -359,7 +377,7 @@ Future<Map<String, dynamic>> writeSettings(Map<String, dynamic> patch) async {
   }
   if (patch.containsKey('preferredVideoQuality')) {
     final v = patch['preferredVideoQuality']?.toString() ?? '';
-    if (v == 'ask' || qualityMaxHeight.containsKey(v)) {
+    if (v == 'ask' || v == 'max' || qualityMaxHeight.containsKey(v)) {
       raw[prefsKeyPreferredVideoQuality] = v;
     }
   }
@@ -381,7 +399,7 @@ Future<bool> sendToApp({
     if (settings != null) 'settings': settings,
     'ts': DateTime.now().millisecondsSinceEpoch,
   };
-  inboxFile().writeAsStringSync(jsonEncode(payload));
+  appendToInbox(payload);
 
   if (await isDownoaderRunning()) {
     return true;

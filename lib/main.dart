@@ -11,6 +11,10 @@ import 'theme.dart';
 import 'ytdlp_service.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  if (Platform.isAndroid) {
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  }
   runApp(const DownoaderApp());
 }
 
@@ -491,7 +495,7 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Downloader'),
+        title: const _AppBarTitle(),
         actions: [
           IconButton(
             icon: Icon(_playlistModeIcon),
@@ -508,28 +512,19 @@ class _HomePageState extends State<HomePage> {
             tooltip: 'Log opslaan als tekstbestand',
             onPressed: _saveLogs,
           ),
-          IconButton(
-            icon: _busy
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.download),
-            tooltip: 'Download',
-            onPressed: _busy ? null : _startDownload,
-          ),
-          if (!Platform.isAndroid) ...[
+          if (!Platform.isAndroid)
             IconButton(
               icon: const Icon(Icons.folder_open),
               tooltip: 'Open downloadmap',
               onPressed: _downloadDir.isEmpty ? null : _openDownloadFolder,
             ),
-            const SizedBox(width: 4),
-          ],
-          Icon(widget.isDarkMode ? Icons.dark_mode : Icons.light_mode),
-          Switch(value: widget.isDarkMode, onChanged: widget.onToggleDarkMode),
-          const SizedBox(width: 12),
+          IconButton(
+            icon: Icon(
+              widget.isDarkMode ? Icons.dark_mode : Icons.light_mode,
+            ),
+            tooltip: widget.isDarkMode ? 'Donkere modus' : 'Lichte modus',
+            onPressed: () => widget.onToggleDarkMode(!widget.isDarkMode),
+          ),
         ],
       ),
       body: SafeArea(
@@ -747,6 +742,42 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _AppBarTitle extends StatelessWidget {
+  const _AppBarTitle();
+
+  static const _iconAsset = 'Download.icoon.png';
+  // Ruimte voor icoon (28) + gap (10) + "Downloader" (~95) ≈ 135.
+  static const _minWidthForText = 140.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final showText =
+            !Platform.isAndroid && constraints.maxWidth >= _minWidthForText;
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Image.asset(
+                _iconAsset,
+                width: 28,
+                height: 28,
+                fit: BoxFit.cover,
+              ),
+            ),
+            if (showText) ...[
+              const SizedBox(width: 10),
+              const Text('Downloader'),
+            ],
+          ],
+        );
+      },
     );
   }
 }

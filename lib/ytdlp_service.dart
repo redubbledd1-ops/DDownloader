@@ -437,6 +437,11 @@ class YtDlpService {
       '--print',
       'after_move:$_filepathMarker%(filepath)s',
       isPlaylist ? '--yes-playlist' : '--no-playlist',
+      // Een oude .part-restant hervatten faalt vaak met HTTP 416: YouTube's
+      // ondertekende CDN-URL's zijn maar kort geldig/uniek per aanvraag, dus
+      // "verder gaan" op een eerder-mislukte download botst met een nieuwe
+      // URL. Altijd opnieuw beginnen is betrouwbaarder dan proberen te hervatten.
+      '--no-continue',
       ..._playerClientArgs,
       ...jsArgs,
       ..._concurrencyArgs,

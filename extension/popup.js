@@ -15,6 +15,9 @@ const openFolderBtn = document.getElementById("openFolderBtn");
 const playFileBtn = document.getElementById("playFileBtn");
 const downloadedActionsEl = document.getElementById("downloadedActions");
 const preferredQualityEl = document.getElementById("preferredQuality");
+const githubLinkEl = document.getElementById("githubLink");
+const audioOnlyEl = document.getElementById("audioOnly");
+const directDownloadEnabledEl = document.getElementById("directDownloadEnabled");
 const statusEl = document.getElementById("status");
 const progressEl = document.getElementById("progress");
 
@@ -27,6 +30,39 @@ function setStatus(text, kind = "") {
   statusEl.hidden = !text;
   statusEl.textContent = text || "";
   statusEl.className = "status" + (kind ? ` ${kind}` : "");
+}
+
+// Chrome/Edge geeft dit soort teksten als de native host niet geregistreerd
+// is (host ontbreekt of yt-dlp/de Windows-app is nooit geïnstalleerd).
+function isHostMissingError(e) {
+  const m = ((e && e.message) || String(e)).toLowerCase();
+  return (
+    m.includes("native messaging host") ||
+    m.includes("host niet bereikbaar") ||
+    m.includes("verbinding verbroken")
+  );
+}
+
+function showGithubLink(show) {
+  githubLinkEl.hidden = !show;
+}
+
+// Puur een extentie-UI-voorkeur (niet gedeeld met de app), dus lokale
+// chrome.storage i.p.v. de native-host settings.
+function applyDirectDownloadEnabled(enabled) {
+  downloadBtn.hidden = !enabled;
+}
+
+async function loadDirectDownloadEnabled() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get({ directDownloadEnabled: true }, (res) => {
+      resolve(res.directDownloadEnabled !== false);
+    });
+  });
+}
+
+function saveDirectDownloadEnabled(enabled) {
+  chrome.storage.local.set({ directDownloadEnabled: enabled });
 }
 
 function setBusy(value) {
@@ -43,6 +79,7 @@ function setBusy(value) {
   urlEl.disabled = value;
   autoDownloadEl.disabled = value;
   preferredQualityEl.disabled = value;
+  audioOnlyEl.disabled = value;
 }
 
 function fileNameOf(path) {
@@ -110,6 +147,7 @@ function fillQualities(list) {
 function updateFormatUi() {
   const isMp3 = formatEl.value === "mp3";
   qualityField.style.visibility = isMp3 ? "hidden" : "visible";
+  audioOnlyEl.checked = isMp3;
 }
 
 function chosenFormatId() {
@@ -332,6 +370,14 @@ async function downloadHere({ auto = false } = {}) {
 }
 
 formatEl.addEventListener("change", updateFormatUi);
+audioOnlyEl.addEventListener("change", () => {
+  formatEl.value = audioOnlyEl.checked ? "mp3" : "mp4";
+  updateFormatUi();
+});
+directDownloadEnabledEl.addEventListener("change", () => {
+  applyDirectDownloadEnabled(directDownloadEnabledEl.checked);
+  saveDirectDownloadEnabled(directDownloadEnabledEl.checked);
+});
 autoDownloadEl.addEventListener("change", updateHeaderHint);
 refreshBtn.addEventListener("click", refreshFormats);
 saveBtn.addEventListener("click", saveSettings);
@@ -362,15 +408,20 @@ urlEl.addEventListener("input", () => {
 
 (async () => {
   await loadActiveTabUrl();
+  const directDownloadEnabled = await loadDirectDownloadEnabled();
+  directDownloadEnabledEl.checked = directDownloadEnabled;
+  applyDirectDownloadEnabled(directDownloadEnabled);
   updateFormatUi();
   setBusy(true);
+  showGithubLink(false);
   try {
     await sendNative({ cmd: "ping" });
     await loadSettings();
     setBusy(false);
     // Icoon geklikt → popup opent. Alleen meteen downloaden als de
-    // gebruiker dat expliciet heeft aangezet (staat standaard uit).
-    if (autoDownloadEl.checked && urlEl.value.trim()) {
+    // gebruiker dat expliciet heeft aangezet (staat standaard uit) EN
+    // "Direct Downloaden" niet is uitgeschakeld.
+    if (autoDownloadEl.checked && directDownloadEnabled && urlEl.value.trim()) {
       await downloadHere({ auto: true });
     } else if (!urlEl.value.trim()) {
       setStatus("Verbonden. Geen downloadbare URL op deze tab.", "error");
@@ -378,7 +429,16 @@ urlEl.addEventListener("input", () => {
       setStatus("Verbonden.", "ok");
     }
   } catch (e) {
-    setStatus(e.message || String(e), "error");
-    setBusy(false);
+    if (isHostMissingError(e)) {
+      setStatus(
+        "Downloader-app/native host niet gevonden op dit apparaat.",
+        "error"
+      );
+      showGithubLink(true);
+      // Zonder host werkt niets hier — knoppen uitgeschakeld laten.
+    } else {
+      setStatus(e.message || String(e), "error");
+      setBusy(false);
+    }
   }
 })();

@@ -20,16 +20,31 @@
       <input id="url" type="url" spellcheck="false" />
     </label>
 
+    <label class="field row-check">
+      <input id="audioOnly" type="checkbox" />
+      <span>🎵 Alleen audio (MP3)</span>
+    </label>
+
     <div class="actions">
       <button id="sendToApp" type="button" class="primary" disabled>
-        Naar app sturen &amp; downloaden
+        Naar App
       </button>
       <button id="downloadHere" type="button" disabled>
-        Direct downloaden (zonder app-UI)
+        Direct Downloaden
       </button>
     </div>
 
     <div id="status" class="status" hidden></div>
+    <a
+      id="githubLink"
+      class="ghost-link"
+      href="https://github.com/redubbledd1-ops/Downloader"
+      target="_blank"
+      rel="noopener"
+      hidden
+    >
+      Downloader-app niet gevonden — installatie-instructies op GitHub →
+    </a>
     <progress id="progress" max="100" value="0" hidden></progress>
 
     <div class="row">
@@ -87,6 +102,11 @@
       <label class="field row-check">
         <input id="autoDownload" type="checkbox" />
         <span>Extentie-icoon downloadt meteen (i.p.v. dit venster openen)</span>
+      </label>
+
+      <label class="field row-check">
+        <input id="directDownloadEnabled" type="checkbox" checked />
+        <span>"Direct Downloaden"-knop tonen (zonder app-UI)</span>
       </label>
 
       <button id="saveSettings" type="button">Instellingen opslaan</button>

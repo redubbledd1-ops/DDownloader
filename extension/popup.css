@@ -130,9 +130,18 @@ h1 {
 
 .actions {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 8px;
   margin-bottom: 10px;
+}
+
+.actions button {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 input,
@@ -234,6 +243,23 @@ button.ghost:hover {
 
 .status.ok {
   color: var(--ok);
+}
+
+.ghost-link {
+  display: block;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--fg);
+  text-decoration: none;
+  text-align: center;
+}
+
+.ghost-link:hover {
+  border-color: var(--fg);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 progress {

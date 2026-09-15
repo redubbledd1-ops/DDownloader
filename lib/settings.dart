@@ -12,10 +12,40 @@ class Settings {
   static const _keyDarkMode = 'dark_mode';
   static const _keyDownloaded = 'downloaded_items';
   static const _keyPlaylistMode = 'playlist_mode';
+  static const _keyDefaultFormat = 'default_format';
+  static const _keyPreferredVideoQuality = 'preferred_video_quality';
+  static const _keyAppExe = 'app_exe';
+  static const _keyAutoDownloadOnClick = 'auto_download_on_click';
+
+  /// Zelfde map als shared_preferences op Windows: Roaming\com.example\Downloader
+  static Future<Directory> appDataDir() async {
+    if (Platform.isWindows) {
+      final roaming = Platform.environment['APPDATA'];
+      if (roaming != null && roaming.isNotEmpty) {
+        final dir = Directory(p.join(roaming, 'com.example', 'Downloader'));
+        await dir.create(recursive: true);
+        return dir;
+      }
+    }
+    return getApplicationSupportDirectory();
+  }
+
+  static Future<File> extensionInboxFile() async {
+    final dir = await appDataDir();
+    return File(p.join(dir.path, 'extension_inbox.json'));
+  }
 
   static Future<String> getDownloadDir() async {
     final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString(_keyDownloadDir);
+    var saved = prefs.getString(_keyDownloadDir);
+    if (saved == null || saved.isEmpty) {
+      // Migreer vanaf oude lowercase prefs-map (com.example\downoader).
+      saved = await _readLegacyDownloadDir();
+      if (saved != null && saved.isNotEmpty) {
+        await prefs.setString(_keyDownloadDir, saved);
+        return saved;
+      }
+    }
     if (saved != null && saved.isNotEmpty) return saved;
     if (Platform.isAndroid) {
       final dir = await getExternalStorageDirectory();
@@ -23,6 +53,22 @@ class Settings {
     }
     final userProfile = Platform.environment['USERPROFILE'] ?? 'C:\\';
     return '$userProfile\\Downloads';
+  }
+
+  static Future<String?> _readLegacyDownloadDir() async {
+    if (!Platform.isWindows) return null;
+    final roaming = Platform.environment['APPDATA'];
+    if (roaming == null) return null;
+    final file = File(p.join(roaming, 'com.example', 'downoader', 'shared_preferences.json'));
+    if (!await file.exists()) return null;
+    try {
+      final data = jsonDecode(await file.readAsString());
+      if (data is Map && data['flutter.download_dir'] is String) {
+        final v = data['flutter.download_dir'] as String;
+        if (v.isNotEmpty) return v;
+      }
+    } catch (_) {}
+    return null;
   }
 
   static Future<void> setDownloadDir(String dir) async {
@@ -38,6 +84,59 @@ class Settings {
   static Future<void> setDarkMode(bool dark) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyDarkMode, dark);
+  }
+
+  static Future<OutputFormat> getDefaultFormat() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_keyDefaultFormat);
+    return OutputFormat.values.firstWhere(
+      (f) => f.name == raw,
+      orElse: () => OutputFormat.mp4,
+    );
+  }
+
+  static Future<void> setDefaultFormat(OutputFormat format) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyDefaultFormat, format.name);
+  }
+
+  static Future<PreferredVideoQuality> getPreferredVideoQuality() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_keyPreferredVideoQuality);
+    return PreferredVideoQuality.values.firstWhere(
+      (q) => q.name == raw,
+      orElse: () => PreferredVideoQuality.p1080,
+    );
+  }
+
+  static Future<void> setPreferredVideoQuality(PreferredVideoQuality q) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyPreferredVideoQuality, q.name);
+  }
+
+  static Future<void> setAppExePath(String path) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyAppExe, path);
+  }
+
+  /// Of het icoon van de browser-extentie meteen moet downloaden (met de
+  /// exe-instellingen) i.p.v. eerst de popup te openen. Staat standaard uit
+  /// bij een verse installatie.
+  static Future<bool> getAutoDownloadOnClick() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_keyAutoDownloadOnClick) ?? false;
+  }
+
+  static Future<void> setAutoDownloadOnClick(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyAutoDownloadOnClick, value);
+  }
+
+  static Future<String?> getAppExePath() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_keyAppExe);
+    if (saved == null || saved.isEmpty) return null;
+    return saved;
   }
 
   static Future<List<DownloadedItem>> getDownloadedItems() async {
@@ -75,5 +174,23 @@ class Settings {
   static Future<void> setPlaylistMode(PlaylistMode mode) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyPlaylistMode, mode.name);
+  }
+
+  /// Inbox van de browser-extentie: één pending download-opdracht.
+  static Future<Map<String, dynamic>?> takeExtensionInbox() async {
+    if (!Platform.isWindows) return null;
+    final file = await extensionInboxFile();
+    if (!await file.exists()) return null;
+    try {
+      final data = jsonDecode(await file.readAsString());
+      await file.delete();
+      if (data is Map<String, dynamic>) return data;
+      if (data is Map) return data.cast<String, dynamic>();
+    } catch (_) {
+      try {
+        await file.delete();
+      } catch (_) {}
+    }
+    return null;
   }
 }

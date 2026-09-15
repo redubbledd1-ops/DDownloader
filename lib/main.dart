@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -10,16 +11,41 @@ import 'settings.dart';
 import 'theme.dart';
 import 'ytdlp_service.dart';
 
-void main() {
+String? _argValue(List<String> args, String name) {
+  final prefix = '--$name=';
+  for (final a in args) {
+    if (a.startsWith(prefix)) return a.substring(prefix.length);
+  }
+  final i = args.indexOf('--$name');
+  if (i >= 0 && i + 1 < args.length) return args[i + 1];
+  return null;
+}
+
+void main(List<String> args) {
   WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isAndroid) {
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   }
-  runApp(const DownoaderApp());
+  runApp(
+    DownoaderApp(
+      initialUrl: _argValue(args, 'url'),
+      initialFormat: _argValue(args, 'format'),
+      initialFormatId: _argValue(args, 'formatId'),
+    ),
+  );
 }
 
 class DownoaderApp extends StatefulWidget {
-  const DownoaderApp({super.key});
+  final String? initialUrl;
+  final String? initialFormat;
+  final String? initialFormatId;
+
+  const DownoaderApp({
+    super.key,
+    this.initialUrl,
+    this.initialFormat,
+    this.initialFormatId,
+  });
 
   @override
   State<DownoaderApp> createState() => _DownoaderAppState();
@@ -32,6 +58,9 @@ class _DownoaderAppState extends State<DownoaderApp> {
   void initState() {
     super.initState();
     _loadDarkMode();
+    if (Platform.isWindows) {
+      Settings.setAppExePath(Platform.resolvedExecutable);
+    }
   }
 
   Future<void> _loadDarkMode() async {
@@ -54,6 +83,9 @@ class _DownoaderAppState extends State<DownoaderApp> {
       home: HomePage(
         isDarkMode: _themeMode == ThemeMode.dark,
         onToggleDarkMode: _toggleDarkMode,
+        initialUrl: widget.initialUrl,
+        initialFormat: widget.initialFormat,
+        initialFormatId: widget.initialFormatId,
       ),
     );
   }
@@ -62,11 +94,17 @@ class _DownoaderAppState extends State<DownoaderApp> {
 class HomePage extends StatefulWidget {
   final bool isDarkMode;
   final ValueChanged<bool> onToggleDarkMode;
+  final String? initialUrl;
+  final String? initialFormat;
+  final String? initialFormatId;
 
   const HomePage({
     super.key,
     required this.isDarkMode,
     required this.onToggleDarkMode,
+    this.initialUrl,
+    this.initialFormat,
+    this.initialFormatId,
   });
 
   @override
@@ -78,6 +116,8 @@ class _HomePageState extends State<HomePage> {
   final _service = YtDlpService();
 
   OutputFormat _format = OutputFormat.mp4;
+  PreferredVideoQuality _videoQuality = PreferredVideoQuality.p1080;
+  bool _autoDownloadOnClick = false;
   PlaylistMode _playlistMode = PlaylistMode.ask;
   String _downloadDir = '';
   bool _busy = false;
@@ -92,6 +132,8 @@ class _HomePageState extends State<HomePage> {
   final List<String> _logs = [];
   final _logScrollController = ScrollController();
   bool _showLogs = false;
+  Timer? _inboxTimer;
+  String? _pendingFormatId;
 
   void _addLog(String message) {
     setState(() {
@@ -157,9 +199,161 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _loadDir();
-    _loadDownloaded();
-    _loadPlaylistMode();
+    _bootstrap();
+  }
+
+  @override
+  void dispose() {
+    _inboxTimer?.cancel();
+    _urlController.dispose();
+    _searchController.dispose();
+    _logScrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _bootstrap() async {
+    await Future.wait([
+      _loadDir(),
+      _loadDownloaded(),
+      _loadPlaylistMode(),
+      _loadFormat(),
+      _loadVideoQuality(),
+      _loadAutoDownloadOnClick(),
+    ]);
+    if (widget.initialFormat != null) {
+      final f = OutputFormat.values.where((e) => e.name == widget.initialFormat);
+      if (f.isNotEmpty) {
+        setState(() => _format = f.first);
+        await Settings.setDefaultFormat(f.first);
+      }
+    }
+    if (widget.initialFormatId != null && widget.initialFormatId!.isNotEmpty) {
+      _pendingFormatId = widget.initialFormatId;
+    }
+    if (widget.initialUrl != null && widget.initialUrl!.isNotEmpty) {
+      _urlController.text = widget.initialUrl!;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _startDownload(formatIdOverride: _pendingFormatId);
+      });
+    }
+    if (Platform.isWindows) {
+      _inboxTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        _pollExtensionInbox();
+      });
+    }
+  }
+
+  Future<void> _pollExtensionInbox() async {
+    if (_busy || !mounted) return;
+    final job = await Settings.takeExtensionInbox();
+    if (job == null) return;
+
+    // Extentie downloadde rechtstreeks via de native host (buiten de app
+    // om) — alleen de app-lijst bijwerken, niets opnieuw downloaden.
+    if (job['type']?.toString() == 'downloaded') {
+      final path = job['path']?.toString() ?? '';
+      if (path.isEmpty) return;
+      final formatName = job['format']?.toString();
+      final formatMatch = OutputFormat.values.where(
+        (e) => e.name == formatName,
+      );
+      final format = formatMatch.isNotEmpty
+          ? formatMatch.first
+          : OutputFormat.mp4;
+      setState(() {
+        _downloaded.insert(
+          0,
+          DownloadedItem(
+            path: path,
+            isPlaylist: job['isPlaylist'] == true,
+            format: format,
+          ),
+        );
+      });
+      await Settings.setDownloadedItems(_downloaded);
+      _addLog('Extentie: bestand gedownload ($path)');
+      return;
+    }
+
+    final patch = job['settings'];
+    if (patch is Map) {
+      final downloadDir = patch['downloadDir']?.toString();
+      if (downloadDir != null && downloadDir.isNotEmpty) {
+        await Settings.setDownloadDir(downloadDir);
+        setState(() => _downloadDir = downloadDir);
+      }
+      final playlistMode = patch['playlistMode']?.toString();
+      if (playlistMode != null) {
+        final mode = PlaylistMode.values.where((e) => e.name == playlistMode);
+        if (mode.isNotEmpty) {
+          await Settings.setPlaylistMode(mode.first);
+          setState(() => _playlistMode = mode.first);
+        }
+      }
+      final formatName = patch['format']?.toString();
+      if (formatName != null) {
+        final match = OutputFormat.values.where((e) => e.name == formatName);
+        if (match.isNotEmpty) {
+          await Settings.setDefaultFormat(match.first);
+          setState(() => _format = match.first);
+        }
+      }
+      final qualityName = patch['preferredVideoQuality']?.toString();
+      if (qualityName != null) {
+        final match = PreferredVideoQuality.values.where(
+          (e) => e.name == qualityName,
+        );
+        if (match.isNotEmpty) {
+          await Settings.setPreferredVideoQuality(match.first);
+          setState(() => _videoQuality = match.first);
+        }
+      }
+      final autoDownload = patch['autoDownloadOnClick'];
+      if (autoDownload is bool) {
+        await Settings.setAutoDownloadOnClick(autoDownload);
+        setState(() => _autoDownloadOnClick = autoDownload);
+      }
+    }
+
+    // Alleen settings (van "Instellingen opslaan") — geen download.
+    if (job['type']?.toString() == 'settings') {
+      _addLog('Extentie: app-instellingen bijgewerkt');
+      return;
+    }
+
+    final url = job['url']?.toString() ?? '';
+    if (url.isEmpty) return;
+
+    final formatName = job['format']?.toString();
+    final formatId = job['formatId']?.toString();
+    setState(() {
+      _urlController.text = url;
+      if (formatName != null) {
+        final match = OutputFormat.values.where((e) => e.name == formatName);
+        if (match.isNotEmpty) _format = match.first;
+      }
+    });
+    if (formatName != null) {
+      final match = OutputFormat.values.where((e) => e.name == formatName);
+      if (match.isNotEmpty) await Settings.setDefaultFormat(match.first);
+    }
+    _addLog('Extentie: download gestart voor $url');
+    await _startDownload(formatIdOverride: formatId);
+  }
+
+  Future<void> _loadFormat() async {
+    final format = await Settings.getDefaultFormat();
+    setState(() => _format = format);
+  }
+
+  Future<void> _loadVideoQuality() async {
+    final q = await Settings.getPreferredVideoQuality();
+    setState(() => _videoQuality = q);
+  }
+
+  Future<void> _loadAutoDownloadOnClick() async {
+    final value = await Settings.getAutoDownloadOnClick();
+    setState(() => _autoDownloadOnClick = value);
   }
 
   Future<void> _loadPlaylistMode() async {
@@ -195,7 +389,7 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _startDownload() async {
+  Future<void> _startDownload({String? formatIdOverride}) async {
     if (_busy) return;
 
     var url = _urlController.text.trim();
@@ -266,46 +460,50 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    String? formatId;
-    if (_format == OutputFormat.mp4) {
-      List<FormatInfo> formats;
-      try {
-        if (probe.isPlaylist) {
-          setState(() => _status = 'Kwaliteiten ophalen...');
-          formats = await _service.fetchFormats(url);
-        } else {
-          // Niet-playlist URL: de probe-call heeft de volledige info al
-          // opgehaald, dus geen tweede yt-dlp-aanroep nodig.
-          formats = _service.parseFormats(probe.data);
+    String? formatId = formatIdOverride;
+    if (_format == OutputFormat.mp4 && formatId == null) {
+      if (_videoQuality != PreferredVideoQuality.ask) {
+        formatId = _videoQuality.formatSelector;
+      } else {
+        List<FormatInfo> formats;
+        try {
+          if (probe.isPlaylist) {
+            setState(() => _status = 'Kwaliteiten ophalen...');
+            formats = await _service.fetchFormats(url);
+          } else {
+            // Niet-playlist URL: de probe-call heeft de volledige info al
+            // opgehaald, dus geen tweede yt-dlp-aanroep nodig.
+            formats = _service.parseFormats(probe.data);
+          }
+        } catch (e) {
+          setState(() {
+            _busy = false;
+            _status = '';
+          });
+          _addLog('FOUT: $e');
+          _showError('Kon kwaliteiten niet ophalen: $e');
+          return;
         }
-      } catch (e) {
-        setState(() {
-          _busy = false;
-          _status = '';
-        });
-        _addLog('FOUT: $e');
-        _showError('Kon kwaliteiten niet ophalen: $e');
-        return;
+        if (formats.isEmpty) {
+          setState(() {
+            _busy = false;
+            _status = '';
+          });
+          _showError('Geen video-formats gevonden voor deze URL.');
+          return;
+        }
+        final chosen = await _askQuality(formats);
+        if (chosen == null) {
+          setState(() {
+            _busy = false;
+            _status = '';
+          });
+          return;
+        }
+        formatId = chosen.hasAudio
+            ? chosen.formatId
+            : '${chosen.formatId}+bestaudio/best';
       }
-      if (formats.isEmpty) {
-        setState(() {
-          _busy = false;
-          _status = '';
-        });
-        _showError('Geen video-formats gevonden voor deze URL.');
-        return;
-      }
-      final chosen = await _askQuality(formats);
-      if (chosen == null) {
-        setState(() {
-          _busy = false;
-          _status = '';
-        });
-        return;
-      }
-      formatId = chosen.hasAudio
-          ? chosen.formatId
-          : '${chosen.formatId}+bestaudio/best';
     }
 
     setState(() {
@@ -483,12 +681,69 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  @override
-  void dispose() {
-    _urlController.dispose();
-    _searchController.dispose();
-    _logScrollController.dispose();
-    super.dispose();
+  Future<bool> _confirmDialog(String title, String message) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuleren'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Verwijderen'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  Future<void> _deleteItem(DownloadedItem item) async {
+    final confirmed = await _confirmDialog(
+      'Bestand verwijderen?',
+      'Weet je zeker dat je "${item.fileName}" wilt verwijderen? Dit kan niet ongedaan worden gemaakt.',
+    );
+    if (!confirmed) return;
+    try {
+      final file = File(item.path);
+      if (await file.exists()) await file.delete();
+    } catch (e) {
+      _showError('Kon bestand niet verwijderen: $e');
+      return;
+    }
+    setState(() => _downloaded.remove(item));
+    await Settings.setDownloadedItems(_downloaded);
+    _addLog('Verwijderd: ${item.fileName}');
+  }
+
+  Future<void> _deleteAllItems() async {
+    if (_downloaded.isEmpty) return;
+    final confirmed = await _confirmDialog(
+      'Alle bestanden verwijderen?',
+      'Weet je zeker dat je alle ${_downloaded.length} gedownloade bestanden wilt verwijderen? Dit kan niet ongedaan worden gemaakt.',
+    );
+    if (!confirmed) return;
+    final items = List<DownloadedItem>.from(_downloaded);
+    var failed = 0;
+    for (final item in items) {
+      try {
+        final file = File(item.path);
+        if (await file.exists()) await file.delete();
+      } catch (_) {
+        failed++;
+      }
+    }
+    setState(() => _downloaded.clear());
+    await Settings.setDownloadedItems(_downloaded);
+    _addLog('Alle bestanden verwijderd${failed > 0 ? ' ($failed mislukt)' : ''}.');
+    if (failed > 0) {
+      _showError('$failed bestand(en) konden niet verwijderd worden.');
+    }
   }
 
   @override
@@ -614,10 +869,78 @@ class _HomePageState extends State<HomePage> {
                     selected: {_format},
                     onSelectionChanged: _busy
                         ? null
-                        : (s) => setState(() => _format = s.first),
+                        : (s) {
+                            final next = s.first;
+                            setState(() => _format = next);
+                            Settings.setDefaultFormat(next);
+                          },
                   ),
                 ],
               ),
+              if (_format == OutputFormat.mp4) ...[
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    const Text('MP4-kwaliteit: '),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: DropdownButtonFormField<PreferredVideoQuality>(
+                        value: _videoQuality,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                        ),
+                        items: PreferredVideoQuality.values
+                            .map(
+                              (q) => DropdownMenuItem(
+                                value: q,
+                                child: Text(q.label),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: _busy
+                            ? null
+                            : (q) {
+                                if (q == null) return;
+                                setState(() => _videoQuality = q);
+                                Settings.setPreferredVideoQuality(q);
+                              },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _videoQuality == PreferredVideoQuality.ask
+                      ? 'Bij downloaden eerst kwaliteit kiezen.'
+                      : 'Direct downloaden (app + extentie) gebruikt ${_videoQuality.label}.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+              if (Platform.isWindows) ...[
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Extentie-icoon downloadt meteen'),
+                  subtitle: Text(
+                    _autoDownloadOnClick
+                        ? 'Klik op het extentie-icoon start direct een download (app-instellingen).'
+                        : 'Klik op het extentie-icoon opent eerst het venster.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  value: _autoDownloadOnClick,
+                  onChanged: (value) {
+                    setState(() => _autoDownloadOnClick = value);
+                    Settings.setAutoDownloadOnClick(value);
+                  },
+                ),
+              ],
               const SizedBox(height: 16),
               if (_busy) ...[
                 LinearProgressIndicator(
@@ -628,9 +951,15 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(height: 16),
               ],
               const Divider(),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text('Gedownloade bestanden'),
+              Row(
+                children: [
+                  const Expanded(child: Text('Gedownloade bestanden')),
+                  IconButton(
+                    icon: const Icon(Icons.delete_sweep_outlined),
+                    tooltip: 'Alle bestanden verwijderen',
+                    onPressed: _downloaded.isEmpty ? null : _deleteAllItems,
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               TextField(
@@ -709,7 +1038,11 @@ class _HomePageState extends State<HomePage> {
                                 tooltip: 'Open map',
                                 onPressed: () => _openItemFolder(item.path),
                               ),
-                              const Icon(Icons.open_in_new, size: 18),
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline, size: 18),
+                                tooltip: 'Verwijderen',
+                                onPressed: () => _deleteItem(item),
+                              ),
                             ],
                           ),
                           onTap: () => _openFile(item.path),

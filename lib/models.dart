@@ -2,6 +2,52 @@ enum OutputFormat { mp4, mp3 }
 
 enum PlaylistMode { ask, playlist, single }
 
+/// Voorkeursresolutie voor MP4. `ask` = in de app kwaliteit kiezen;
+/// een vaste hoogte = direct downloaden zonder dialoog (extentie + app).
+enum PreferredVideoQuality {
+  ask,
+  p2160,
+  p1440,
+  p1080,
+  p720,
+  p480,
+  p360,
+  p240,
+  p144;
+
+  int? get maxHeight => switch (this) {
+    PreferredVideoQuality.ask => null,
+    PreferredVideoQuality.p2160 => 2160,
+    PreferredVideoQuality.p1440 => 1440,
+    PreferredVideoQuality.p1080 => 1080,
+    PreferredVideoQuality.p720 => 720,
+    PreferredVideoQuality.p480 => 480,
+    PreferredVideoQuality.p360 => 360,
+    PreferredVideoQuality.p240 => 240,
+    PreferredVideoQuality.p144 => 144,
+  };
+
+  String get label => switch (this) {
+    PreferredVideoQuality.ask => 'Altijd vragen',
+    PreferredVideoQuality.p2160 => '4K (2160p)',
+    PreferredVideoQuality.p1440 => '1440p',
+    PreferredVideoQuality.p1080 => '1080p',
+    PreferredVideoQuality.p720 => '720p',
+    PreferredVideoQuality.p480 => '480p',
+    PreferredVideoQuality.p360 => '360p',
+    PreferredVideoQuality.p240 => '240p',
+    PreferredVideoQuality.p144 => '144p',
+  };
+
+  /// yt-dlp -f selector voor directe downloads.
+  String get formatSelector {
+    final h = maxHeight;
+    if (h == null) return 'bestvideo+bestaudio/best';
+    return 'bestvideo[height<=$h]+bestaudio/best[height<=$h]/best';
+  }
+}
+
+
 class FormatInfo {
   final String formatId;
   final String ext;

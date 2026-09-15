@@ -1,0 +1,243 @@
+:root {
+  --bg: #0a0f1e;
+  --fg: #f2f4f8;
+  --muted: #9aa3b5;
+  --line: #243049;
+  --accent: #f2f4f8;
+  --accent-fg: #0a0f1e;
+  --danger: #ff6b6b;
+  --ok: #3dd68c;
+  --field-bg: #ffffff;
+  --field-fg: #111827;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  width: 360px;
+  padding: 14px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+header img {
+  border-radius: 6px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.header-hint {
+  margin: 2px 0 0;
+}
+
+.hint {
+  margin: 8px 0 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.settings {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 10px 10px;
+  margin-top: 12px;
+}
+
+.settings > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 10px 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-weight: 600;
+  user-select: none;
+}
+
+.settings > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings > summary::before {
+  content: "▸ ";
+  color: var(--fg);
+}
+
+.settings[open] > summary::before {
+  content: "▾ ";
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.field span {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.row-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.row-check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.row-check span {
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 10px;
+}
+
+.grow {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+input,
+select,
+button {
+  font: inherit;
+}
+
+/* Lichte velden: native dropdown-lijsten blijven zo leesbaar (donkere tekst). */
+input[type="text"],
+input[type="url"],
+select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--field-bg);
+  color: var(--field-fg);
+  color-scheme: light;
+}
+
+select option,
+select optgroup {
+  background: #ffffff;
+  color: #111827;
+}
+
+button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  width: 100%;
+  margin-bottom: 0;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+  font-weight: 600;
+  padding: 10px 12px;
+}
+
+button.ghost {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  border-style: dashed;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.ghost:hover {
+  color: var(--fg);
+  border-color: var(--fg);
+}
+
+#downloadedActions.row {
+  margin-top: 0;
+  margin-bottom: 0;
+  align-items: stretch;
+}
+
+#downloadedActions.row button.ghost {
+  flex: 1;
+  width: auto;
+  margin-top: 10px;
+  min-width: 0;
+}
+
+#refresh {
+  height: 38px;
+  width: 42px;
+  flex-shrink: 0;
+  margin-bottom: 0;
+}
+
+.status {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-word;
+  max-height: 72px;
+  overflow: auto;
+}
+
+.status.error {
+  color: var(--danger);
+}
+
+.status.ok {
+  color: var(--ok);
+}
+
+progress {
+  width: 100%;
+  margin: 0 0 10px;
+  height: 6px;
+}

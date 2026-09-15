@@ -16,9 +16,13 @@ class MainActivity : FlutterActivity() {
     private val progressChannelName = "downoader/ytdlp/progress"
     private var eventSink: EventChannel.EventSink? = null
 
-    // android-client is lichter dan de standaard web-client (geen JS-signature
-    // extractie nodig) en dus merkbaar sneller bij metadata ophalen en downloaden.
-    private val speedOptions = listOf("--extractor-args", "youtube:player_client=android")
+    // android-client levert sinds YouTube's PO/SABR-wijzigingen alleen nog
+    // progressive 360p (format 18). default+tv_simply geeft weer alle
+    // resoluties (tot 4K) zonder PO-token.
+    private val speedOptions = listOf(
+        "--extractor-args",
+        "youtube:player_client=default,tv_simply",
+    )
     private val concurrencyOptions = listOf("--concurrent-fragments", "4")
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {

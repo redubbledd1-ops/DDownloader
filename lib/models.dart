@@ -61,9 +61,14 @@ class FormatInfo {
   }
 
   String get label {
-    final res = height != null
-        ? '${height}p'
-        : (note.isEmpty ? formatId : note);
+    // format_note heeft meestal de standaardresolutie ("720p"); height kan
+    // bij niet-16:9 video's afwijken (bijv. 734) en verwarrende labels geven.
+    final noteMatch = RegExp(r'(\d{3,4})p').firstMatch(note);
+    final res = noteMatch != null
+        ? '${noteMatch.group(1)}p'
+        : (height != null
+            ? '${height}p'
+            : (note.isEmpty ? formatId : note));
     return '$res  ·  $ext  ·  $sizeLabel';
   }
 }

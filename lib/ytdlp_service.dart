@@ -25,11 +25,12 @@ const EventChannel _androidProgressChannel = EventChannel(
 final RegExp _percentRegex = RegExp(r'\[download\]\s+([\d.]+)%');
 const String _filepathMarker = 'FILEPATH::';
 
-// android-client is lichter dan de standaard web-client (geen JS-signature
-// extractie nodig) en dus merkbaar sneller bij metadata ophalen en downloaden.
+// android-client levert sinds YouTube's PO/SABR-wijzigingen alleen nog
+// progressive 360p (format 18). default+tv_simply geeft weer alle
+// resoluties (tot 4K) zonder PO-token.
 const List<String> _speedArgs = [
   '--extractor-args',
-  'youtube:player_client=android',
+  'youtube:player_client=default,tv_simply',
 ];
 const List<String> _concurrencyArgs = ['--concurrent-fragments', '4'];
 

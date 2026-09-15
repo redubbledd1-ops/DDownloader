@@ -17,6 +17,11 @@ const String ytDlpPath = r'C:\Program Files\yt-dlpd.exe';
 const String _ffmpegDownloadUrl =
     'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip';
 
+// Portable Deno-build (single exe), gebruikt als JS-runtime voor yt-dlp's
+// nsig-oplosser (zie hieronder bij _ensureJsRuntimeArgs).
+const String _denoDownloadUrl =
+    'https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip';
+
 const MethodChannel _androidChannel = MethodChannel('downoader/ytdlp');
 const EventChannel _androidProgressChannel = EventChannel(
   'downoader/ytdlp/progress',
@@ -28,7 +33,7 @@ const String _filepathMarker = 'FILEPATH::';
 // android-client levert sinds YouTube's PO/SABR-wijzigingen alleen nog
 // progressive 360p (format 18). default+tv_simply geeft weer alle
 // resoluties (tot 4K) zonder PO-token.
-const List<String> _speedArgs = [
+const List<String> _playerClientArgs = [
   '--extractor-args',
   'youtube:player_client=default,tv_simply',
 ];
@@ -74,6 +79,8 @@ class YtDlpService {
   }
 
   String? _bundledFfmpegDir;
+  String? _jsRuntimeArg;
+  bool _jsRuntimeChecked = false;
 
   Future<String?> _resolveBundledFfmpegDir() async {
     if (_bundledFfmpegDir != null) return _bundledFfmpegDir;
@@ -166,13 +173,88 @@ class YtDlpService {
     }
   }
 
+  // yt-dlp lost YouTube's "n"-throttling (nsig) sinds kort niet meer intern
+  // op: er moet een externe JS-runtime aanwezig zijn, anders worden hoge
+  // resoluties stilzwijgend overgeslagen en blijft alleen 144p/240p over.
+  // Deno is de door yt-dlp aanbevolen runtime; als die niet op het systeem
+  // staat downloaden we eenmalig een portable build naar de app-datamap
+  // (zelfde patroon als ensureFfmpeg hierboven).
+  Future<List<String>> _ensureJsRuntimeArgs({void Function(String)? onLog}) async {
+    if (_jsRuntimeChecked) {
+      return _jsRuntimeArg == null ? [] : ['--js-runtimes', _jsRuntimeArg!];
+    }
+    _jsRuntimeChecked = true;
+
+    final supportDir = await getApplicationSupportDirectory();
+    final bundled = File(p.join(supportDir.path, 'deno', 'deno.exe'));
+    if (await bundled.exists()) {
+      _jsRuntimeArg = 'deno:${bundled.path}';
+      return ['--js-runtimes', _jsRuntimeArg!];
+    }
+
+    try {
+      final result = await Process.run('deno', ['--version']);
+      if (result.exitCode == 0) {
+        _jsRuntimeArg = 'deno';
+        return ['--js-runtimes', _jsRuntimeArg!];
+      }
+    } catch (_) {
+      // niet op PATH, hieronder downloaden.
+    }
+
+    try {
+      onLog?.call('JavaScript-runtime (deno) niet gevonden, portable versie downloaden...');
+      await bundled.parent.create(recursive: true);
+      final client = HttpClient();
+      try {
+        final request = await client.getUrl(Uri.parse(_denoDownloadUrl));
+        final response = await request.close();
+        if (response.statusCode != 200) {
+          throw YtDlpException(
+            'deno-download mislukt (HTTP ${response.statusCode}).',
+          );
+        }
+        final bytes = <int>[];
+        await for (final chunk in response) {
+          bytes.addAll(chunk);
+        }
+        final archive = ZipDecoder().decodeBytes(bytes);
+        var found = false;
+        for (final file in archive.files) {
+          if (!file.isFile) continue;
+          if (file.name.toLowerCase().replaceAll('\\', '/') == 'deno.exe') {
+            await bundled.writeAsBytes(file.content as List<int>);
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          throw YtDlpException('deno.exe niet gevonden in download.');
+        }
+      } finally {
+        client.close(force: true);
+      }
+      onLog?.call('JavaScript-runtime geïnstalleerd.');
+      _jsRuntimeArg = 'deno:${bundled.path}';
+      return ['--js-runtimes', _jsRuntimeArg!];
+    } catch (e) {
+      onLog?.call(
+        'Waarschuwing: kon geen JS-runtime installeren ($e), hoge resoluties kunnen ontbreken.',
+      );
+      _jsRuntimeArg = null;
+      return [];
+    }
+  }
+
   Future<PlaylistProbeResult> probePlaylist(String url) async {
+    final jsArgs = await _ensureJsRuntimeArgs();
     final Map<String, dynamic> data = Platform.isAndroid
         ? jsonDecode(await _androidQuery(url, 'probe'))
         : await _desktopQuery(url, [
             '--flat-playlist',
             '-J',
-            ..._speedArgs,
+            ..._playerClientArgs,
+            ...jsArgs,
             url,
           ]);
     final entries = data['entries'];
@@ -186,9 +268,16 @@ class YtDlpService {
   }
 
   Future<List<FormatInfo>> fetchFormats(String url) async {
+    final jsArgs = await _ensureJsRuntimeArgs();
     final Map<String, dynamic> data = Platform.isAndroid
         ? jsonDecode(await _androidQuery(url, 'formats'))
-        : await _desktopQuery(url, ['--no-playlist', '-J', ..._speedArgs, url]);
+        : await _desktopQuery(url, [
+            '--no-playlist',
+            '-J',
+            ..._playerClientArgs,
+            ...jsArgs,
+            url,
+          ]);
     return parseFormats(data);
   }
 
@@ -337,6 +426,7 @@ class YtDlpService {
     String? formatId,
     String? ffmpegDir,
   }) async* {
+    final jsArgs = await _ensureJsRuntimeArgs();
     final outTemplate = p.join(outputDir, '%(title)s.%(ext)s');
     final args = <String>[
       url,
@@ -347,7 +437,8 @@ class YtDlpService {
       '--print',
       'after_move:$_filepathMarker%(filepath)s',
       isPlaylist ? '--yes-playlist' : '--no-playlist',
-      ..._speedArgs,
+      ..._playerClientArgs,
+      ...jsArgs,
       ..._concurrencyArgs,
       if (ffmpegDir != null) ...['--ffmpeg-location', ffmpegDir],
     ];

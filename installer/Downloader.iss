@@ -4,6 +4,7 @@
 #define MyAppName "Downloader"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Downloader"
+#define MyAppURL "https://github.com/redubbledd1-ops/Downloader"
 #define MyAppExeName "downoader.exe"
 #define MyExtensionId "meecghmbaeipmpnopapdkknnjcgconeh"
 #ifndef BuildDir
@@ -18,6 +19,9 @@ AppId={{A7C3E5F1-8B2D-4E9A-9C1F-6D4B2A8E0F31}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
+AppPublisherURL={#MyAppURL}
+AppSupportURL={#MyAppURL}/issues
+AppUpdatesURL={#MyAppURL}/releases
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
@@ -30,34 +34,43 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
 UninstallDisplayIcon={app}\{#MyAppExeName}
+VersionInfoVersion={#MyAppVersion}.0
+VersionInfoCompany={#MyAppPublisher}
+VersionInfoDescription=Downloader — video/audio via yt-dlp
+VersionInfoProductName={#MyAppName}
+VersionInfoCopyright=Copyright (C) 2026 {#MyAppPublisher}
+; Without an Authenticode certificate Windows SmartScreen may still warn.
+; Sign with SignTool after buying a code-signing cert to reduce that warning.
 
 [Languages]
-Name: "dutch"; MessagesFile: "compiler:Languages\Dutch.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "dutch"; MessagesFile: "compiler:Languages\Dutch.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-Name: "extchrome"; Description: "Chrome-extentie klaarzetten (Load unpacked)"; GroupDescription: "Browser-extentie:"; Flags: unchecked; Check: ChromeInstalled
-Name: "extedge"; Description: "Edge-extentie klaarzetten (Load unpacked)"; GroupDescription: "Browser-extentie:"; Flags: unchecked; Check: EdgeInstalled
+Name: "extchrome"; Description: "Set up Chrome extension (Load unpacked)"; GroupDescription: "Browser extension:"; Flags: unchecked; Check: ChromeInstalled
+Name: "extedge"; Description: "Set up Edge extension (Load unpacked)"; GroupDescription: "Browser extension:"; Flags: unchecked; Check: EdgeInstalled
 
 [Files]
 Source: "{#BuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "write-prefs.ps1"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
-Name: "{group}\Extentie installeren (handleiding)"; Filename: "{app}\extension\INSTALL-EXTENSION.html"
+Name: "{group}\Install extension (guide)"; Filename: "{app}\extension\INSTALL-EXTENSION.html"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
-Filename: "{win}\explorer.exe"; Parameters: """{app}\extension"""; Description: "Extentie-map openen (voor Load unpacked)"; Flags: postinstall nowait skipifsilent; Check: WantAnyExtension
-Filename: "{code:GetChromeExe}"; Parameters: "--new-window chrome://extensions"; Description: "Chrome-extentiepagina openen"; Flags: postinstall nowait skipifsilent; Check: WantChromeExtension
-Filename: "{code:GetEdgeExe}"; Parameters: "--new-window edge://extensions"; Description: "Edge-extentiepagina openen"; Flags: postinstall nowait skipifsilent; Check: WantEdgeExtension
-Filename: "{app}\extension\INSTALL-EXTENSION.html"; Description: "Handleiding: extentie laden"; Flags: postinstall shellexec skipifsilent; Check: WantAnyExtension
+Filename: "{win}\explorer.exe"; Parameters: """{app}\extension"""; Description: "Open extension folder (for Load unpacked)"; Flags: postinstall nowait skipifsilent; Check: WantAnyExtension
+Filename: "{code:GetChromeExe}"; Parameters: "--new-window chrome://extensions"; Description: "Open Chrome extensions page"; Flags: postinstall nowait skipifsilent; Check: WantChromeExtension
+Filename: "{code:GetEdgeExe}"; Parameters: "--new-window edge://extensions"; Description: "Open Edge extensions page"; Flags: postinstall nowait skipifsilent; Check: WantEdgeExtension
+Filename: "{app}\extension\INSTALL-EXTENSION.html"; Description: "Open extension install guide"; Flags: postinstall shellexec skipifsilent; Check: WantAnyExtension
 
 [Code]
 var
   TasksPreselected: Boolean;
+  DownloadDirPage: TInputDirWizardPage;
 
 function ChromePath: string;
 begin
@@ -160,40 +173,77 @@ begin
   Dest := ExpandConstant('{app}\extension\INSTALL-EXTENSION.html');
   ExtPath := ExpandConstant('{app}\extension');
   Html :=
-    '<!DOCTYPE html><html lang="nl"><head><meta charset="utf-8"/>' +
-    '<title>Downloader — extentie laden</title>' +
+    '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>' +
+    '<title>Downloader — load extension</title>' +
     '<style>body{font-family:Segoe UI,sans-serif;max-width:42rem;margin:2rem auto;padding:0 1.25rem;line-height:1.5}' +
     'h1{font-size:1.4rem}.path{font-family:Consolas,monospace;background:#0001;padding:.35rem .55rem;border-radius:4px;word-break:break-all}' +
     'li{margin:.55rem 0}.note{opacity:.85;font-size:.95rem}</style></head><body>' +
-    '<h1>Downloader-extentie laden</h1>' +
-    '<p>Chrome/Edge laten extenties niet stil installeren. Dit is eenmalig (~20 seconden).</p>' +
+    '<h1>Load the Downloader extension</h1>' +
+    '<p>Chrome/Edge do not allow silent extension installs. This is a one-time step (~20 seconds).</p>' +
     '<ol>' +
-    '<li>Open de extentiepagina (<code>chrome://extensions</code> of <code>edge://extensions</code>).</li>' +
-    '<li>Zet rechtsboven <strong>Developer mode / Ontwikkelaarsmodus</strong> aan.</li>' +
-    '<li>Klik <strong>Load unpacked / Uitgepakte extensie laden</strong>.</li>' +
-    '<li>Kies deze map:<br/><span class="path">' + ExtPath + '</span></li>' +
+    '<li>Open the extensions page (<code>chrome://extensions</code> or <code>edge://extensions</code>).</li>' +
+    '<li>Turn on <strong>Developer mode</strong> (top right).</li>' +
+    '<li>Click <strong>Load unpacked</strong>.</li>' +
+    '<li>Select this folder:<br/><span class="path">' + ExtPath + '</span></li>' +
     '</ol>' +
-    '<p class="note">Native messaging is al door de installer geregistreerd. Daarna verschijnt het Downloader-icoon in de werkbalk.</p>' +
-    '<p class="note">Later in de store is deze stap niet meer nodig.</p>' +
+    '<p class="note">Native messaging is already registered by the installer. The Downloader icon should appear in the toolbar.</p>' +
     '</body></html>';
   ForceDirectories(ExtractFileDir(Dest));
   SaveStringToFile(Dest, Html, False);
 end;
 
-procedure EnsureAppExePrefs;
+procedure WriteAppPrefs;
 var
-  PrefsDir, PrefsPath, AppExe, Json: string;
+  PrefsPath, AppExe, DownloadDir, Params: string;
+  ResultCode: Integer;
 begin
-  PrefsDir := ExpandConstant('{userappdata}\com.example\Downloader');
-  ForceDirectories(PrefsDir);
-  PrefsPath := PrefsDir + '\shared_preferences.json';
+  PrefsPath := ExpandConstant('{userappdata}\com.example\Downloader\shared_preferences.json');
   AppExe := ExpandConstant('{app}\{#MyAppExeName}');
-  if not FileExists(PrefsPath) then
+  DownloadDir := Trim(DownloadDirPage.Values[0]);
+  if DownloadDir = '' then
+    DownloadDir := ExpandConstant('{userdocs}\Downloads');
+  ForceDirectories(DownloadDir);
+
+  Params :=
+    '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{tmp}\write-prefs.ps1') + '"' +
+    ' -PrefsPath "' + PrefsPath + '"' +
+    ' -AppExe "' + AppExe + '"' +
+    ' -DownloadDir "' + DownloadDir + '"';
+  if not Exec('powershell.exe', Params, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    Log('Failed to run write-prefs.ps1')
+  else if ResultCode <> 0 then
+    Log('write-prefs.ps1 exit code ' + IntToStr(ResultCode));
+end;
+
+procedure InitializeWizard;
+var
+  DefaultDownloads: string;
+begin
+  DownloadDirPage := CreateInputDirPage(
+    wpSelectDir,
+    'Download folder',
+    'Where should Downloader save video and audio files?',
+    'Choose a download folder. You can change this later in the app settings.',
+    False,
+    ''
+  );
+  DownloadDirPage.Add('&Download folder:');
+  DefaultDownloads := GetEnv('USERPROFILE') + '\Downloads';
+  if not DirExists(DefaultDownloads) then
+    DefaultDownloads := ExpandConstant('{userdocs}');
+  DownloadDirPage.Values[0] := DefaultDownloads;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := True;
+  if CurPageID = DownloadDirPage.ID then
   begin
-    Json := '{' + #13#10 +
-      '  "flutter.app_exe": "' + EscapeJsonPath(AppExe) + '"' + #13#10 +
-      '}';
-    SaveStringToFile(PrefsPath, Json, False);
+    if Trim(DownloadDirPage.Values[0]) = '' then
+    begin
+      MsgBox('Please choose a download folder.', mbError, MB_OK);
+      Result := False;
+    end;
   end;
 end;
 
@@ -223,7 +273,7 @@ var
 begin
   if CurStep = ssPostInstall then
   begin
-    EnsureAppExePrefs;
+    WriteAppPrefs;
     WriteExtensionGuide;
     if WantAnyExtension then
     begin

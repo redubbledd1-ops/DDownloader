@@ -8,7 +8,9 @@ Flutter app (Windows + Android) to download video/audio via yt-dlp, plus a Chrom
 2. Download `DownloaderSetup-1.0.0.exe` (or the latest Setup)
 3. Run the installer (app + tools; optional Chrome/Edge extension setup)
 
-During setup you can enable **Chrome** and/or **Edge**. The installer prepares the extension files, registers native messaging, and opens the extensions page so you can **Load unpacked** once.
+During setup you choose a **download folder**, and you can enable **Chrome** and/or **Edge**. The installer prepares the extension files, registers native messaging, and opens the extensions page so you can **Load unpacked** once.
+
+Windows may show a SmartScreen ("Windows protected your PC") warning because the installer is not yet Authenticode-signed. Click **More info** → **Run anyway**. A paid code-signing certificate is required to remove that warning for good.
 
 ## Android use
 
@@ -130,3 +132,4 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall-native-host.ps1
 - Android has no browser extension — use the APK app only.
 - After moving `downoader.exe` or changing the extension ID: re-run the install script.
 - To update yt-dlp in an installed app: replace `{installDir}\tools\yt-dlp.exe`, or delete the APPDATA copy so the bundled one is used again.
+

@@ -30,6 +30,14 @@ const EventChannel _androidProgressChannel = EventChannel(
 final RegExp _percentRegex = RegExp(r'\[download\]\s+([\d.]+)%');
 const String _filepathMarker = 'FILEPATH::';
 
+// Forceert echte UTF-8-output van yt-dlp (Python-exe) i.p.v. de Windows-
+// systeem-codepage, die niet-ASCII tekens in titels/output kan verminken.
+final Map<String, String> _ytDlpEnvironment = {
+  ...Platform.environment,
+  'PYTHONUTF8': '1',
+  'PYTHONIOENCODING': 'utf-8',
+};
+
 // android-client levert sinds YouTube's PO/SABR-wijzigingen alleen nog
 // progressive 360p (format 18). default+tv_simply geeft weer alle
 // resoluties (tot 4K) zonder PO-token.
@@ -324,8 +332,12 @@ class YtDlpService {
     final result = await Process.run(
       ytDlpPath,
       args,
-      stdoutEncoding: utf8,
-      stderrEncoding: utf8,
+      environment: _ytDlpEnvironment,
+      // yt-dlp draait als Python-exe; op Windows kan de systeem-codepage
+      // niet-UTF8 bytes in titels/output geven. allowMalformed voorkomt een
+      // FormatException-crash als PYTHONUTF8 (hieronder) het toch mist.
+      stdoutEncoding: const Utf8Codec(allowMalformed: true),
+      stderrEncoding: const Utf8Codec(allowMalformed: true),
     );
     if (result.exitCode != 0) {
       throw YtDlpException(_shortError(result.stderr.toString()));
@@ -455,14 +467,19 @@ class YtDlpService {
       args.addAll(['-f', id, '--merge-output-format', 'mp4']);
     }
 
-    final process = await Process.start(ytDlpPath, args);
+    final process = await Process.start(
+      ytDlpPath,
+      args,
+      environment: _ytDlpEnvironment,
+    );
 
+    const lenientUtf8 = Utf8Decoder(allowMalformed: true);
     final stdoutLines = process.stdout
-        .transform(utf8.decoder)
+        .transform(lenientUtf8)
         .transform(const LineSplitter());
     final stderrBuffer = StringBuffer();
     final stderrSub = process.stderr
-        .transform(utf8.decoder)
+        .transform(lenientUtf8)
         .transform(const LineSplitter())
         .listen((line) => stderrBuffer.writeln(line));
 

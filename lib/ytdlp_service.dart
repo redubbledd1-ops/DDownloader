@@ -6,13 +6,12 @@ import 'package:archive/archive.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'models.dart';
 
 // Oudere installaties waarbij de gebruiker yt-dlp zelf naar deze plek had
-// gezet (voorheen de enige ondersteunde locatie) blijven werken; nieuwe
-// installaties downloaden yt-dlp automatisch, zie ensureYtDlp() hieronder.
+// gezet blijven werken. Release-builds bundelen yt-dlp/ffmpeg/deno in
+// `{installDir}/tools/` naast de exe (zie scripts/build-windows-installer.ps1).
 const String _legacyYtDlpPath = r'C:\Program Files\yt-dlpd.exe';
 
 // yt-dlp's eigen "latest"-release-alias: altijd de nieuwste standalone exe,
@@ -48,14 +47,32 @@ final Map<String, String> _ytDlpEnvironment = {
   'PYTHONIOENCODING': 'utf-8',
 };
 
+/// Haalt het pad uit een FILEPATH::-regel en knipt mojibake (U+FFFD) weg.
+String? _extractFilepath(String line) {
+  final idx = line.indexOf(_filepathMarker);
+  if (idx < 0) return null;
+  var path = line.substring(idx + _filepathMarker.length).trim();
+  final bad = path.indexOf('\uFFFD');
+  if (bad >= 0) path = path.substring(0, bad).trim();
+  if (path.isEmpty) return null;
+  // Alleen accepteren als het bestand echt bestaat — voorkomt dat een
+  // corrupte/incomplete stdout-regel in de downloadlijst belandt.
+  if (!File(path).existsSync()) return null;
+  return path;
+}
+
 // android-client levert sinds YouTube's PO/SABR-wijzigingen alleen nog
 // progressive 360p (format 18). default+tv_simply geeft weer alle
-// resoluties (tot 4K) zonder PO-token.
+// resoluties (tot 4K). tv_simply-HTTPS kan een PO-token-waarschuwing
+// geven maar wordt dan overgeslagen; andere clients in default blijven werken.
+// NIET android_vr forceren: die eist inmiddels ook GVS PO-token → HTTP 403.
 const List<String> _playerClientArgs = [
   '--extractor-args',
   'youtube:player_client=default,tv_simply',
 ];
-const List<String> _concurrencyArgs = ['--concurrent-fragments', '4'];
+// Op Windows: 1 fragment tegelijk. Concurrent fragments houden .part-handles
+// langer open en botsen met Defender/OneDrive (WinError 32 bij rename).
+const List<String> _concurrencyArgs = ['--concurrent-fragments', '1'];
 
 class YtDlpException implements Exception {
   final String message;
@@ -103,26 +120,36 @@ class YtDlpService {
   String? _jsRuntimeArg;
   bool _jsRuntimeChecked = false;
 
-  // yt-dlp hoeft niet meer handmatig geïnstalleerd te worden: bij het
-  // eerste gebruik wordt de nieuwste versie automatisch naar de app-datamap
-  // gedownload (zelfde patroon als ensureFfmpeg hieronder). Een eerdere
-  // handmatige installatie op _legacyYtDlpPath blijft ook gewoon werken.
+  /// Map met meegeleverde tools naast de exe (`{installDir}/tools`).
+  String get _installToolsDir =>
+      p.join(File(Platform.resolvedExecutable).parent.path, 'tools');
+
+  Future<String?> _firstExistingFile(List<String> candidates) async {
+    for (final path in candidates) {
+      if (await File(path).exists()) return path;
+    }
+    return null;
+  }
+
+  // Volgorde: tools naast de geïnstalleerde exe → APPDATA → legacy pad →
+  // eenmalig downloaden naar APPDATA (alleen als niets gebundeld is, bv. dev).
   Future<String> ensureYtDlp({void Function(String)? onLog}) async {
     if (_resolvedYtDlpPath != null) return _resolvedYtDlpPath!;
 
-    if (await File(_legacyYtDlpPath).exists()) {
-      _resolvedYtDlpPath = _legacyYtDlpPath;
-      return _resolvedYtDlpPath!;
-    }
-
     final supportDir = await getApplicationSupportDirectory();
-    final targetFile = File(p.join(supportDir.path, 'yt-dlp', 'yt-dlp.exe'));
-    if (await targetFile.exists()) {
-      _resolvedYtDlpPath = targetFile.path;
-      return _resolvedYtDlpPath!;
+    final appDataYtDlp = p.join(supportDir.path, 'yt-dlp', 'yt-dlp.exe');
+    final found = await _firstExistingFile([
+      p.join(_installToolsDir, 'yt-dlp.exe'),
+      appDataYtDlp,
+      _legacyYtDlpPath,
+    ]);
+    if (found != null) {
+      _resolvedYtDlpPath = found;
+      return found;
     }
 
     onLog?.call('yt-dlp niet gevonden, laatste versie downloaden...');
+    final targetFile = File(appDataYtDlp);
     await targetFile.parent.create(recursive: true);
 
     final client = HttpClient();
@@ -169,11 +196,19 @@ class YtDlpService {
 
   Future<String?> _resolveBundledFfmpegDir() async {
     if (_bundledFfmpegDir != null) return _bundledFfmpegDir;
+
+    final candidates = <String>[
+      _installToolsDir,
+    ];
     final supportDir = await getApplicationSupportDirectory();
-    final dir = p.join(supportDir.path, 'ffmpeg');
-    if (await File(p.join(dir, 'ffmpeg.exe')).exists()) {
-      _bundledFfmpegDir = dir;
-      return dir;
+    candidates.add(p.join(supportDir.path, 'ffmpeg'));
+
+    for (final dir in candidates) {
+      if (await File(p.join(dir, 'ffmpeg.exe')).exists() &&
+          await File(p.join(dir, 'ffprobe.exe')).exists()) {
+        _bundledFfmpegDir = dir;
+        return dir;
+      }
     }
     return null;
   }
@@ -271,10 +306,15 @@ class YtDlpService {
     _jsRuntimeChecked = true;
 
     final supportDir = await getApplicationSupportDirectory();
-    final bundled = File(p.join(supportDir.path, 'deno', 'deno.exe'));
-    if (await bundled.exists()) {
-      _jsRuntimeArg = 'deno:${bundled.path}';
-      return ['--js-runtimes', _jsRuntimeArg!];
+    final candidates = <String>[
+      p.join(_installToolsDir, 'deno.exe'),
+      p.join(supportDir.path, 'deno', 'deno.exe'),
+    ];
+    for (final path in candidates) {
+      if (await File(path).exists()) {
+        _jsRuntimeArg = 'deno:$path';
+        return ['--js-runtimes', _jsRuntimeArg!];
+      }
     }
 
     try {
@@ -287,6 +327,7 @@ class YtDlpService {
       // niet op PATH, hieronder downloaden.
     }
 
+    final bundled = File(p.join(supportDir.path, 'deno', 'deno.exe'));
     try {
       onLog?.call('JavaScript-runtime (deno) niet gevonden, portable versie downloaden...');
       await bundled.parent.create(recursive: true);
@@ -462,10 +503,8 @@ class YtDlpService {
         final map = Map<String, dynamic>.from(event as Map);
         final line = map['line'] as String? ?? '';
         if (line.contains(_filepathMarker)) {
-          final path = line
-              .substring(line.indexOf(_filepathMarker) + _filepathMarker.length)
-              .trim();
-          if (path.isNotEmpty) controller.add(FileDownloadedEvent(path));
+          final path = _extractFilepath(line);
+          if (path != null) controller.add(FileDownloadedEvent(path));
           return;
         }
         if (line.isNotEmpty) controller.add(LogEvent(line));
@@ -518,11 +557,23 @@ class YtDlpService {
   }) async* {
     final ytDlp = await ensureYtDlp();
     final jsArgs = await _ensureJsRuntimeArgs();
-    final outTemplate = p.join(outputDir, '%(title)s.%(ext)s');
+    // Relatief -o + -P home/temp: absolute -o negeert --paths volledig,
+    // waardoor .part weer op Desktop/OneDrive belandt (WinError 32).
+    final tempRoot = Directory(
+      p.join((await getTemporaryDirectory()).path, 'ytdlp-temp'),
+    );
+    await tempRoot.create(recursive: true);
     final args = <String>[
       url,
+      '-P',
+      'home:$outputDir',
+      '-P',
+      'temp:${tempRoot.path}',
       '-o',
-      outTemplate,
+      '%(title)s.%(ext)s',
+      '--windows-filenames',
+      '--file-access-retries',
+      '15',
       '--newline',
       '--no-mtime',
       '--print',
@@ -565,12 +616,8 @@ class YtDlpService {
     await for (final line in stdoutLines) {
       if (line.isNotEmpty) yield LogEvent(line);
       if (line.contains(_filepathMarker)) {
-        final path = line
-            .substring(line.indexOf(_filepathMarker) + _filepathMarker.length)
-            .trim();
-        if (path.isNotEmpty) {
-          yield FileDownloadedEvent(path);
-        }
+        final path = _extractFilepath(line);
+        if (path != null) yield FileDownloadedEvent(path);
         continue;
       }
       final match = _percentRegex.firstMatch(line);
@@ -607,11 +654,14 @@ class YtDlpService {
       await _androidChannel.invokeMethod('openFile', {'path': path});
       return;
     }
-    final ok = await launchUrl(Uri.file(path));
-    if (!ok)
-      throw YtDlpException(
-        'Geen standaardprogramma gevonden om dit bestand te openen.',
-      );
+    // explorer.exe (zelfde als de Chrome-extensie) i.p.v. url_launcher:
+    // Uri.file + ShellExecute faalt sneller op rare/lange paden.
+    if (!await File(path).exists()) {
+      throw YtDlpException('Bestand bestaat niet: $path');
+    }
+    await Process.start('explorer.exe', [
+      path,
+    ], mode: ProcessStartMode.detached);
   }
 
   Future<void> openFolder(String path) async {

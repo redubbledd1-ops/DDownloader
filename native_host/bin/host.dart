@@ -36,13 +36,33 @@ final Map<String, String> _ytDlpEnvironment = {
 
 String? _resolvedYtDlpPath;
 
+// android-client levert sinds YouTube's PO/SABR-wijzigingen alleen nog
+// progressive 360p (format 18). default+tv_simply geeft weer alle
+// resoluties (tot 4K). NIET android_vr forceren: die eist inmiddels ook
+// GVS PO-token → HTTP 403.
 const List<String> playerClientArgs = [
   '--extractor-args',
   'youtube:player_client=default,tv_simply',
 ];
-const List<String> concurrencyArgs = ['--concurrent-fragments', '4'];
+// Op Windows: 1 fragment tegelijk. Concurrent fragments houden .part-handles
+// langer open en botsen met Defender/OneDrive (WinError 32 bij rename).
+const List<String> concurrencyArgs = ['--concurrent-fragments', '1'];
 const String filepathMarker = 'FILEPATH::';
 final RegExp percentRegex = RegExp(r'\[download\]\s+([\d.]+)%');
+
+/// Haalt het pad uit een FILEPATH::-regel en knipt mojibake (U+FFFD) weg.
+String? extractFilepath(String line) {
+  final idx = line.indexOf(filepathMarker);
+  if (idx < 0) return null;
+  var path = line.substring(idx + filepathMarker.length).trim();
+  final bad = path.indexOf('\uFFFD');
+  if (bad >= 0) path = path.substring(0, bad).trim();
+  if (path.isEmpty) return null;
+  // Alleen accepteren als het bestand echt bestaat — voorkomt dat een
+  // corrupte/incomplete stdout-regel in de downloadlijst belandt.
+  if (!File(path).existsSync()) return null;
+  return path;
+}
 
 const String prefsKeyDownloadDir = 'flutter.download_dir';
 const String prefsKeyDarkMode = 'flutter.dark_mode';
@@ -499,38 +519,42 @@ Future<List<int>> _downloadBytes(String url) async {
 // Snelle, niet-downloadende check voor de ping-response (puur informatief).
 String _quickYtDlpProbe() {
   if (_resolvedYtDlpPath != null) return _resolvedYtDlpPath!;
-  if (File(_legacyYtDlpPath).existsSync()) return _legacyYtDlpPath;
-  final bundled = appDataDir().path + r'\yt-dlp\yt-dlp.exe';
-  if (File(bundled).existsSync()) return bundled;
+  for (final path in _ytDlpCandidates()) {
+    if (File(path).existsSync()) return path;
+  }
   return '(nog niet gedownload)';
 }
 
-// yt-dlp hoeft niet meer handmatig geinstalleerd te worden: bij het eerste
-// gebruik wordt de nieuwste versie automatisch naar de app-datamap
-// gedownload (zelfde patroon als de Flutter-app). Een eerdere handmatige
-// installatie op _legacyYtDlpPath blijft ook gewoon werken.
+String _installToolsDir() {
+  // Installer-layout: {app}\host\downoader_native_host.exe → {app}\tools\
+  final hostDir = File(Platform.resolvedExecutable).parent.path;
+  return Directory('$hostDir\\..\\tools').absolute.path;
+}
+
+List<String> _ytDlpCandidates() {
+  final tools = _installToolsDir();
+  return [
+    '$tools\\yt-dlp.exe',
+    File(Platform.resolvedExecutable).parent.path + r'\yt-dlpd.exe',
+    appDataDir().path + r'\yt-dlp\yt-dlp.exe',
+    _legacyYtDlpPath,
+  ];
+}
+
+// Volgorde: tools naast de geïnstalleerde app → APPDATA → legacy → download.
 Future<String> resolveYtDlp({void Function(String)? onLog}) async {
   if (_resolvedYtDlpPath != null) return _resolvedYtDlpPath!;
 
-  if (await File(_legacyYtDlpPath).exists()) {
-    _resolvedYtDlpPath = _legacyYtDlpPath;
-    return _resolvedYtDlpPath!;
-  }
-  final beside = File(
-    File(Platform.resolvedExecutable).parent.path + r'\yt-dlpd.exe',
-  );
-  if (await beside.exists()) {
-    _resolvedYtDlpPath = beside.path;
-    return _resolvedYtDlpPath!;
-  }
-
-  final target = File(appDataDir().path + r'\yt-dlp\yt-dlp.exe');
-  if (await target.exists()) {
-    _resolvedYtDlpPath = target.path;
-    return _resolvedYtDlpPath!;
+  for (final path in _ytDlpCandidates()) {
+    final file = File(path);
+    if (await file.exists()) {
+      _resolvedYtDlpPath = file.absolute.path;
+      return _resolvedYtDlpPath!;
+    }
   }
 
   onLog?.call('yt-dlp niet gevonden, laatste versie downloaden...');
+  final target = File(appDataDir().path + r'\yt-dlp\yt-dlp.exe');
   await target.parent.create(recursive: true);
   final bytes = await _downloadBytes(_ytDlpDownloadUrl);
   await target.writeAsBytes(bytes);
@@ -596,21 +620,19 @@ Future<List<Map<String, dynamic>>> fetchFormats(String url) async {
   return infos;
 }
 
-// ffmpeg hoeft niet meer handmatig geinstalleerd te worden: als het niet
-// aanwezig is (in de gedeelde app-datamap of op PATH) wordt het bij eerste
-// gebruik automatisch gedownload en uitgepakt (zelfde bron/patroon als de
-// Flutter-app). Retourneert de map voor --ffmpeg-location, of null als
-// systeem-ffmpeg (PATH) volstaat.
+// ffmpeg: tools naast de app → APPDATA → PATH → download naar APPDATA.
 Future<String?> ensureFfmpegDir({void Function(String)? onLog}) async {
   final roaming = Platform.environment['APPDATA'] ?? '';
+  final tools = _installToolsDir();
   final candidates = <String>[
+    tools,
     '$roaming\\com.example\\Downloader\\ffmpeg',
     '$roaming\\com.example\\downoader\\ffmpeg',
   ];
   for (final dir in candidates) {
     if (File('$dir\\ffmpeg.exe').existsSync() &&
         File('$dir\\ffprobe.exe').existsSync()) {
-      return dir;
+      return File(dir).absolute.path;
     }
   }
   try {
@@ -649,20 +671,18 @@ Future<String?> ensureFfmpegDir({void Function(String)? onLog}) async {
   return targetDir.path;
 }
 
-// yt-dlp lost YouTube's "n"-throttling (nsig) sinds kort niet meer intern op:
-// zonder externe JS-runtime worden hoge resoluties stilzwijgend overgeslagen
-// en blijft alleen 144p/240p over. De Windows-app downloadt bij eerste gebruik
-// een portable Deno naar dezelfde app-datamap; die hergebruiken we hier zodat
-// de extensie niet zelf iets hoeft te installeren.
+// Deno: tools naast de app → APPDATA → PATH.
 Future<List<String>> resolveJsRuntimeArgs() async {
   final roaming = Platform.environment['APPDATA'] ?? '';
+  final tools = _installToolsDir();
   final candidates = <String>[
+    '$tools\\deno.exe',
     '$roaming\\com.example\\Downloader\\deno\\deno.exe',
     '$roaming\\com.example\\downoader\\deno\\deno.exe',
   ];
   for (final path in candidates) {
     if (File(path).existsSync()) {
-      return ['--js-runtimes', 'deno:$path'];
+      return ['--js-runtimes', 'deno:${File(path).absolute.path}'];
     }
   }
   try {
@@ -694,13 +714,25 @@ Future<void> runDownload({
   }
 
   await Directory(outputDir).create(recursive: true);
-  final outTemplate = '$outputDir${Platform.pathSeparator}%(title)s.%(ext)s';
   final jsArgs = await resolveJsRuntimeArgs();
+  // Relatief -o + -P home/temp: absolute -o negeert --paths volledig,
+  // waardoor .part weer op Desktop/OneDrive belandt (WinError 32).
+  final tempRoot = Directory(
+    '${Directory.systemTemp.path}${Platform.pathSeparator}downloader-ytdlp-temp',
+  );
+  tempRoot.createSync(recursive: true);
 
   final args = <String>[
     url,
+    '-P',
+    'home:$outputDir',
+    '-P',
+    'temp:${tempRoot.path}',
     '-o',
-    outTemplate,
+    '%(title)s.%(ext)s',
+    '--windows-filenames',
+    '--file-access-retries',
+    '15',
     '--newline',
     '--no-mtime',
     '--print',
@@ -745,13 +777,11 @@ Future<void> runDownload({
           .transform(lenientUtf8)
           .transform(const LineSplitter())) {
     if (line.contains(filepathMarker)) {
-      lastPath = line
-          .substring(line.indexOf(filepathMarker) + filepathMarker.length)
-          .trim();
+      lastPath = extractFilepath(line);
       await writeMessage({
         'ok': true,
         'line': line,
-        if (lastPath.isNotEmpty) 'path': lastPath,
+        if (lastPath != null && lastPath.isNotEmpty) 'path': lastPath,
       });
       continue;
     }

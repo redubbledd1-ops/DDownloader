@@ -1,4 +1,4 @@
-# Registers the Downloader Native Messaging host for Chrome and/or Edge.
+﻿# Registers the Downloader Native Messaging host for Chrome and/or Edge.
 # Auto-detects the unpacked Extension ID when -ExtensionId is omitted.
 
 param(
@@ -16,7 +16,17 @@ $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
 if (-not $HostExe) {
-    $HostExe = Join-Path $root "extension\host\downoader_native_host.exe"
+    foreach ($h in @(
+        (Join-Path $root "extension\host\downoader_native_host.exe"),
+        (Join-Path $root "Release\host\downoader_native_host.exe"),
+        (Join-Path $root "build\windows\x64\runner\Release\host\downoader_native_host.exe"),
+        "${env:ProgramFiles}\Downloader\host\downoader_native_host.exe"
+    )) {
+        if (Test-Path $h) { $HostExe = $h; break }
+    }
+    if (-not $HostExe) {
+        $HostExe = Join-Path $root "extension\host\downoader_native_host.exe"
+    }
 }
 $HostExe = [System.IO.Path]::GetFullPath($HostExe)
 
@@ -32,7 +42,9 @@ if (-not (Test-Path $HostExe)) {
 if (-not $AppExe) {
     $candidates = @(
         (Join-Path $root "build\windows\x64\runner\Release\downoader.exe"),
-        (Join-Path $root "Release\downoader.exe")
+        (Join-Path $root "Release\downoader.exe"),
+        "${env:ProgramFiles}\Downloader\downoader.exe",
+        "${env:ProgramFiles(x86)}\Downloader\downoader.exe"
     )
     foreach ($c in $candidates) {
         if (Test-Path $c) { $AppExe = [System.IO.Path]::GetFullPath($c); break }
@@ -65,8 +77,9 @@ if (-not $ExtensionId) {
     if ($ExtensionId) {
         Write-Host "Extension ID automatisch gevonden: $ExtensionId"
     } else {
-        Write-Error "Geen Extension ID. Laad eerst de unpacked extentie, of geef -ExtensionId mee."
-        exit 1
+        # Vaste ID uit manifest "key" (zelfde als de Windows-installer gebruikt)
+        $ExtensionId = "meecghmbaeipmpnopapdkknnjcgconeh"
+        Write-Host "Geen geladen extentie gevonden; vaste ID gebruikt: $ExtensionId"
     }
 }
 
@@ -136,3 +149,6 @@ foreach ($key in $targets) {
 Write-Host ""
 Write-Host "Klaar. Herlaad de extentie op chrome://extensions (knop refresh),"
 Write-Host "open daarna de popup opnieuw."
+
+
+

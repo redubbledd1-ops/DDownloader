@@ -87,3 +87,14 @@ extension/host/com.downoader.host.json
 err*.txt
 err_test.txt
 
+
+# Windows installer build artifacts
+dist/
+.tools-cache/
+
+# Private key for fixed Chrome extension ID (public key zit in manifest.json)
+installer/extension-key.pem
+
+
+# Gebundelde binaries (ffmpeg/deno te groot voor GitHub; horen in Setup.exe / Releases)
+Release/tools/

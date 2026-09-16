@@ -1,0 +1,29 @@
+﻿<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8"/>
+<title>Downloader — browser-extentie installeren</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: Segoe UI, system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1.25rem; line-height: 1.5; }
+  h1 { font-size: 1.4rem; margin-bottom: 0.4rem; }
+  .path { font-family: Consolas, monospace; background: #0001; padding: 0.35rem 0.55rem; border-radius: 4px; word-break: break-all; }
+  ol { padding-left: 1.25rem; }
+  li { margin: 0.55rem 0; }
+  .note { opacity: 0.85; font-size: 0.95rem; }
+  button { font: inherit; padding: 0.45rem 0.9rem; cursor: pointer; margin-top: 0.5rem; }
+</style>
+</head>
+<body>
+  <h1>Downloader-extentie laden</h1>
+  <p>Chrome en Edge laten extenties niet stilzwijgend installeren. Dit is eenmalig en duurt ~20 seconden.</p>
+  <ol>
+    <li>Open de extentiepagina in je browser (<code>chrome://extensions</code> of <code>edge://extensions</code>).</li>
+    <li>Zet rechtsboven <strong>Developer mode</strong> / <strong>Ontwikkelaarsmodus</strong> aan.</li>
+    <li>Klik <strong>Load unpacked</strong> / <strong>Uitgepakte extensie laden</strong>.</li>
+    <li>Kies deze map:<br/><span class="path" id="extpath">EXTENSION_PATH</span></li>
+  </ol>
+  <p class="note">Daarna verschijnt het Downloader-icoon in de werkbalk. Native messaging is al door de installer geregistreerd.</p>
+  <p class="note">Later: in de Chrome Web Store / Edge Add-ons is deze stap niet meer nodig.</p>
+</body>
+</html>

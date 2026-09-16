@@ -18,7 +18,8 @@ class MainActivity : FlutterActivity() {
 
     // android-client levert sinds YouTube's PO/SABR-wijzigingen alleen nog
     // progressive 360p (format 18). default+tv_simply geeft weer alle
-    // resoluties (tot 4K) zonder PO-token.
+    // resoluties (tot 4K). NIET android_vr forceren: die eist inmiddels ook
+    // GVS PO-token → HTTP 403.
     private val speedOptions = listOf(
         "--extractor-args",
         "youtube:player_client=default,tv_simply",

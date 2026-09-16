@@ -17,6 +17,9 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<String> onChangeDownloadDir;
   final bool autoDownloadOnClick;
   final ValueChanged<bool> onChangeAutoDownloadOnClick;
+  final bool showLogs;
+  final ValueChanged<bool> onToggleShowLogs;
+  final VoidCallback onSaveLogs;
 
   const SettingsPage({
     super.key,
@@ -28,6 +31,9 @@ class SettingsPage extends StatefulWidget {
     required this.onChangeDownloadDir,
     required this.autoDownloadOnClick,
     required this.onChangeAutoDownloadOnClick,
+    required this.showLogs,
+    required this.onToggleShowLogs,
+    required this.onSaveLogs,
   });
 
   @override
@@ -185,6 +191,19 @@ class _SettingsPageState extends State<SettingsPage> {
                 onChanged: widget.onChangeAutoDownloadOnClick,
               ),
             ],
+            const Divider(),
+            _SectionHeader(title: t.logsTooltip),
+            SwitchListTile(
+              title: Text(t.showLogsLabel),
+              subtitle: Text(t.showLogsSubtitle),
+              value: widget.showLogs,
+              onChanged: widget.onToggleShowLogs,
+            ),
+            ListTile(
+              leading: const Icon(Icons.download_for_offline_outlined),
+              title: Text(t.saveLogsTooltip),
+              onTap: widget.onSaveLogs,
+            ),
           ],
         ),
       ),

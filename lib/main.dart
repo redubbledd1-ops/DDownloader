@@ -755,16 +755,6 @@ class _HomePageState extends State<HomePage> {
             tooltip: _playlistModeTooltip,
             onPressed: _cyclePlaylistMode,
           ),
-          IconButton(
-            icon: Icon(_showLogs ? Icons.terminal : Icons.terminal_outlined),
-            tooltip: t.logsTooltip,
-            onPressed: () => setState(() => _showLogs = !_showLogs),
-          ),
-          IconButton(
-            icon: const Icon(Icons.download_for_offline_outlined),
-            tooltip: t.saveLogsTooltip,
-            onPressed: _saveLogs,
-          ),
           if (!Platform.isAndroid)
             IconButton(
               icon: const Icon(Icons.folder_open),
@@ -791,6 +781,10 @@ class _HomePageState extends State<HomePage> {
                       setState(() => _autoDownloadOnClick = value);
                       Settings.setAutoDownloadOnClick(value);
                     },
+                    showLogs: _showLogs,
+                    onToggleShowLogs: (value) =>
+                        setState(() => _showLogs = value),
+                    onSaveLogs: _saveLogs,
                   ),
                 ),
               );

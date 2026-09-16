@@ -57,12 +57,21 @@ ThemeData buildAppTheme(Brightness brightness) {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     ),
-    // Alle segmenten (niet alleen de geselecteerde) krijgen dezelfde
-    // volle achtergrond — selectie wordt getoond via het vinkje, niet via
-    // een afwijkende kleur of scheidingslijntjes tussen segmenten.
+    // Alle segmenten krijgen dezelfde volle achtergrond, geen
+    // scheidingslijntjes — geselecteerd is een tikje donkerder wit
+    // (donkere modus) / lichter zwart (lichte modus) dan de rest, en
+    // hover krijgt een eigen grijstint.
     segmentedButtonTheme: SegmentedButtonThemeData(
       style: ButtonStyle(
-        backgroundColor: WidgetStateProperty.all(fg),
+        backgroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.hovered)) {
+            return isLight ? Colors.grey[400] : Colors.grey[700];
+          }
+          if (states.contains(WidgetState.selected)) {
+            return isLight ? Colors.grey[850] : Colors.grey[300];
+          }
+          return fg;
+        }),
         foregroundColor: WidgetStateProperty.all(bg),
         iconColor: WidgetStateProperty.all(bg),
         side: const WidgetStatePropertyAll(BorderSide.none),

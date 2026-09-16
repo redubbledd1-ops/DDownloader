@@ -50,6 +50,24 @@ class L10n {
     AppLanguage.pt => 'Registros',
   };
 
+  String get showLogsLabel => switch (language) {
+    AppLanguage.nl => 'Logs tonen',
+    AppLanguage.en => 'Show logs',
+    AppLanguage.de => 'Protokolle anzeigen',
+    AppLanguage.fr => 'Afficher les journaux',
+    AppLanguage.es => 'Mostrar registros',
+    AppLanguage.pt => 'Mostrar registros',
+  };
+
+  String get showLogsSubtitle => switch (language) {
+    AppLanguage.nl => 'Toont het logpaneel onderaan het hoofdscherm.',
+    AppLanguage.en => 'Shows the log panel on the main screen.',
+    AppLanguage.de => 'Zeigt das Protokollfeld auf dem Hauptbildschirm.',
+    AppLanguage.fr => "Affiche le panneau des journaux sur l'écran principal.",
+    AppLanguage.es => 'Muestra el panel de registros en la pantalla principal.',
+    AppLanguage.pt => 'Mostra o painel de registros na tela principal.',
+  };
+
   String get saveLogsTooltip => switch (language) {
     AppLanguage.nl => 'Log opslaan als tekstbestand',
     AppLanguage.en => 'Save log as text file',

@@ -8,7 +8,8 @@ import 'dart:typed_data';
 /// Flutter Windows-app (%APPDATA%\com.example\Downloader\).
 ///
 /// Commands:
-///   ping | getSettings | setSettings | formats | download | sendToApp
+///   ping | getSettings | setSettings | formats | download | sendToApp |
+///   openFolder | openFile | checkFile
 
 const String ytDlpPath = r'C:\Program Files\yt-dlpd.exe';
 const List<String> playerClientArgs = [
@@ -215,6 +216,13 @@ Future<void> handleMessage(Map<String, dynamic> msg) async {
       } catch (e) {
         await writeMessage({'ok': false, 'error': e.toString()});
       }
+    case 'checkFile':
+      final checkPath = msg['path']?.toString() ?? '';
+      if (checkPath.isEmpty) {
+        await writeMessage({'ok': false, 'error': 'pad ontbreekt'});
+        return;
+      }
+      await writeMessage({'ok': true, 'exists': File(checkPath).existsSync()});
     case 'openFile':
       final filePath = msg['path']?.toString() ?? '';
       if (filePath.isEmpty) {

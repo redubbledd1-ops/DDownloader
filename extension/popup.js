@@ -488,6 +488,21 @@ urlEl.addEventListener("input", () => {
     }
 
     setBusy(false);
+
+    // Al eerder via deze extentie gedownload? Dan niet blind opnieuw
+    // downloaden (vooral vervelend bij icoon-klik-auto-download) — en
+    // de Afspelen/Open-map-knoppen werken meteen weer, ook na een reload
+    // van de pagina of het heropenen van deze popup.
+    const existing = await chrome.runtime.sendMessage({
+      type: "checkDownloaded",
+      url: urlEl.value.trim(),
+    });
+    if (existing?.downloaded) {
+      showDownloadedActions(existing.path);
+      setStatus(`Al gedownload: ${existing.path}`, "ok");
+      return;
+    }
+
     // Icoon geklikt → popup opent. Alleen meteen downloaden als de
     // gebruiker dat expliciet heeft aangezet (staat standaard uit) EN
     // "Direct Downloaden" niet is uitgeschakeld.

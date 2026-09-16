@@ -407,6 +407,14 @@ class _HomePageState extends State<HomePage> {
     }
 
     setState(() => _busy = true);
+    try {
+      await _service.ensureYtDlp(onLog: _addLog);
+    } catch (e) {
+      setState(() => _busy = false);
+      _addLog('FOUT: $e');
+      _showError(t.errInstallYtDlp('$e'));
+      return;
+    }
     String? ffmpegDir;
     try {
       ffmpegDir = await _service.ensureFfmpeg(onLog: _addLog);

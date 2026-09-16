@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:archive/archive.dart';
 
 /// Chrome/Edge Native Messaging host for Downloader.
 ///
@@ -11,7 +12,30 @@ import 'dart:typed_data';
 ///   ping | getSettings | setSettings | formats | download | sendToApp |
 ///   openFolder | openFile | checkFile
 
-const String ytDlpPath = r'C:\Program Files\yt-dlpd.exe';
+// Oudere installaties waarbij de gebruiker yt-dlp zelf naar deze plek had
+// gezet blijven werken; nieuwe installaties downloaden yt-dlp automatisch,
+// zie resolveYtDlp() hieronder (zelfde aanpak als de Flutter-app).
+const String _legacyYtDlpPath = r'C:\Program Files\yt-dlpd.exe';
+
+// yt-dlp's eigen "latest"-release-alias: altijd de nieuwste standalone exe.
+const String _ytDlpDownloadUrl =
+    'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe';
+
+// Portable, statisch gelinkte Windows-build (GPL, BtbN's altijd-actuele
+// "latest" release-tag) — zelfde bron als de Flutter-app gebruikt.
+const String _ffmpegDownloadUrl =
+    'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip';
+
+// Forceert echte UTF-8-output van yt-dlp (Python-exe) i.p.v. de Windows-
+// systeem-codepage, die niet-ASCII tekens in titels/output kan verminken.
+final Map<String, String> _ytDlpEnvironment = {
+  ...Platform.environment,
+  'PYTHONUTF8': '1',
+  'PYTHONIOENCODING': 'utf-8',
+};
+
+String? _resolvedYtDlpPath;
+
 const List<String> playerClientArgs = [
   '--extractor-args',
   'youtube:player_client=default,tv_simply',
@@ -115,7 +139,7 @@ Future<void> handleMessage(Map<String, dynamic> msg) async {
       await writeMessage({
         'ok': true,
         'version': '1.1.0',
-        'ytDlp': await resolveYtDlp(),
+        'ytDlp': _quickYtDlpProbe(),
         'prefsPath': prefsFile().path,
         'appExe': settings['appExe'],
       });
@@ -150,7 +174,8 @@ Future<void> handleMessage(Map<String, dynamic> msg) async {
         return;
       }
       final settings = await readSettings();
-      final downloadFormat = msg['format']?.toString() ?? settings['format'] as String;
+      final downloadFormat =
+          msg['format']?.toString() ?? settings['format'] as String;
       var downloadFormatId = msg['formatId']?.toString();
       if ((downloadFormatId == null || downloadFormatId.isEmpty) &&
           downloadFormat != 'mp3') {
@@ -167,7 +192,8 @@ Future<void> handleMessage(Map<String, dynamic> msg) async {
         isPlaylist: msg['isPlaylist'] == true
             ? true
             : settings['playlistMode'] == 'playlist',
-        outputDir: msg['outputDir']?.toString() ?? settings['downloadDir'] as String,
+        outputDir:
+            msg['outputDir']?.toString() ?? settings['downloadDir'] as String,
       );
     case 'sendToApp':
       final url = msg['url']?.toString() ?? '';
@@ -207,11 +233,9 @@ Future<void> handleMessage(Map<String, dynamic> msg) async {
       }
       try {
         final dir = File(path).parent.path;
-        await Process.start(
-          'explorer.exe',
-          [dir],
-          mode: ProcessStartMode.detached,
-        );
+        await Process.start('explorer.exe', [
+          dir,
+        ], mode: ProcessStartMode.detached);
         await writeMessage({'ok': true});
       } catch (e) {
         await writeMessage({'ok': false, 'error': e.toString()});
@@ -232,11 +256,9 @@ Future<void> handleMessage(Map<String, dynamic> msg) async {
       try {
         // explorer.exe met een bestandspad start het bestand met de
         // standaard-app, net als dubbelklikken.
-        await Process.start(
-          'explorer.exe',
-          [filePath],
-          mode: ProcessStartMode.detached,
-        );
+        await Process.start('explorer.exe', [
+          filePath,
+        ], mode: ProcessStartMode.detached);
         await writeMessage({'ok': true});
       } catch (e) {
         await writeMessage({'ok': false, 'error': e.toString()});
@@ -353,7 +375,8 @@ Future<Map<String, dynamic>> readSettings() async {
     'format': raw[prefsKeyDefaultFormat]?.toString() ?? 'mp4',
     'appExe': raw[prefsKeyAppExe]?.toString() ?? '',
     'autoDownloadOnClick': raw[prefsKeyAutoDownload] == true,
-    'preferredVideoQuality': raw[prefsKeyPreferredVideoQuality]?.toString() ?? 'p1080',
+    'preferredVideoQuality':
+        raw[prefsKeyPreferredVideoQuality]?.toString() ?? 'p1080',
   };
 }
 
@@ -455,25 +478,81 @@ Future<String?> guessAppExe() async {
   return null;
 }
 
-Future<String> resolveYtDlp() async {
-  if (await File(ytDlpPath).exists()) return ytDlpPath;
+Future<List<int>> _downloadBytes(String url) async {
+  final client = HttpClient();
+  try {
+    final request = await client.getUrl(Uri.parse(url));
+    final response = await request.close();
+    if (response.statusCode != 200) {
+      throw StateError('Download mislukt (HTTP ${response.statusCode}).');
+    }
+    final bytes = <int>[];
+    await for (final chunk in response) {
+      bytes.addAll(chunk);
+    }
+    return bytes;
+  } finally {
+    client.close(force: true);
+  }
+}
+
+// Snelle, niet-downloadende check voor de ping-response (puur informatief).
+String _quickYtDlpProbe() {
+  if (_resolvedYtDlpPath != null) return _resolvedYtDlpPath!;
+  if (File(_legacyYtDlpPath).existsSync()) return _legacyYtDlpPath;
+  final bundled = appDataDir().path + r'\yt-dlp\yt-dlp.exe';
+  if (File(bundled).existsSync()) return bundled;
+  return '(nog niet gedownload)';
+}
+
+// yt-dlp hoeft niet meer handmatig geinstalleerd te worden: bij het eerste
+// gebruik wordt de nieuwste versie automatisch naar de app-datamap
+// gedownload (zelfde patroon als de Flutter-app). Een eerdere handmatige
+// installatie op _legacyYtDlpPath blijft ook gewoon werken.
+Future<String> resolveYtDlp({void Function(String)? onLog}) async {
+  if (_resolvedYtDlpPath != null) return _resolvedYtDlpPath!;
+
+  if (await File(_legacyYtDlpPath).exists()) {
+    _resolvedYtDlpPath = _legacyYtDlpPath;
+    return _resolvedYtDlpPath!;
+  }
   final beside = File(
-    '${File(Platform.resolvedExecutable).parent.path}\\yt-dlpd.exe',
+    File(Platform.resolvedExecutable).parent.path + r'\yt-dlpd.exe',
   );
-  if (await beside.exists()) return beside.path;
-  return ytDlpPath;
+  if (await beside.exists()) {
+    _resolvedYtDlpPath = beside.path;
+    return _resolvedYtDlpPath!;
+  }
+
+  final target = File(appDataDir().path + r'\yt-dlp\yt-dlp.exe');
+  if (await target.exists()) {
+    _resolvedYtDlpPath = target.path;
+    return _resolvedYtDlpPath!;
+  }
+
+  onLog?.call('yt-dlp niet gevonden, laatste versie downloaden...');
+  await target.parent.create(recursive: true);
+  final bytes = await _downloadBytes(_ytDlpDownloadUrl);
+  await target.writeAsBytes(bytes);
+  onLog?.call('yt-dlp geinstalleerd.');
+
+  _resolvedYtDlpPath = target.path;
+  return _resolvedYtDlpPath!;
 }
 
 Future<List<Map<String, dynamic>>> fetchFormats(String url) async {
   final exe = await resolveYtDlp();
   final jsArgs = await resolveJsRuntimeArgs();
-  final result = await Process.run(exe, [
-    '--no-playlist',
-    '-J',
-    ...playerClientArgs,
-    ...jsArgs,
-    url,
-  ], stdoutEncoding: utf8, stderrEncoding: utf8);
+  final result = await Process.run(
+    exe,
+    ['--no-playlist', '-J', ...playerClientArgs, ...jsArgs, url],
+    environment: _ytDlpEnvironment,
+    // yt-dlp draait als Python-exe; op Windows kan de systeem-codepage
+    // niet-UTF8 bytes in titels/output geven. allowMalformed voorkomt een
+    // FormatException-crash als PYTHONUTF8 (hierboven) het toch mist.
+    stdoutEncoding: const Utf8Codec(allowMalformed: true),
+    stderrEncoding: const Utf8Codec(allowMalformed: true),
+  );
   if (result.exitCode != 0) {
     throw StateError(shortError(result.stderr.toString()));
   }
@@ -484,20 +563,18 @@ Future<List<Map<String, dynamic>>> fetchFormats(String url) async {
     if (raw is! Map) continue;
     final f = raw.cast<String, dynamic>();
     final vcodec = f['vcodec']?.toString();
-    final hasVideo =
-        vcodec == null || (vcodec != 'none' && vcodec.isNotEmpty);
+    final hasVideo = vcodec == null || (vcodec != 'none' && vcodec.isNotEmpty);
     if (!hasVideo) continue;
     final acodec = f['acodec']?.toString();
-    final hasAudio =
-        acodec == null || (acodec != 'none' && acodec.isNotEmpty);
+    final hasAudio = acodec == null || (acodec != 'none' && acodec.isNotEmpty);
     final height = f['height'];
     final note = f['format_note']?.toString() ?? '';
     final noteMatch = RegExp(r'(\d{3,4})p').firstMatch(note);
     final labelRes = noteMatch != null
         ? '${noteMatch.group(1)}p'
         : (height is num
-            ? '${height.toInt()}p'
-            : (note.isEmpty ? '${f['format_id']}' : note));
+              ? '${height.toInt()}p'
+              : (note.isEmpty ? '${f['format_id']}' : note));
     final filesize = f['filesize'];
     final filesizeApprox = f['filesize_approx'];
     infos.add({
@@ -519,7 +596,12 @@ Future<List<Map<String, dynamic>>> fetchFormats(String url) async {
   return infos;
 }
 
-Future<String?> resolveFfmpegDir() async {
+// ffmpeg hoeft niet meer handmatig geinstalleerd te worden: als het niet
+// aanwezig is (in de gedeelde app-datamap of op PATH) wordt het bij eerste
+// gebruik automatisch gedownload en uitgepakt (zelfde bron/patroon als de
+// Flutter-app). Retourneert de map voor --ffmpeg-location, of null als
+// systeem-ffmpeg (PATH) volstaat.
+Future<String?> ensureFfmpegDir({void Function(String)? onLog}) async {
   final roaming = Platform.environment['APPDATA'] ?? '';
   final candidates = <String>[
     '$roaming\\com.example\\Downloader\\ffmpeg',
@@ -535,7 +617,36 @@ Future<String?> resolveFfmpegDir() async {
     final result = await Process.run('ffmpeg', ['-version']);
     if (result.exitCode == 0) return null; // op PATH
   } catch (_) {}
-  return null;
+
+  onLog?.call('ffmpeg niet gevonden, portable versie downloaden...');
+  final targetDir = Directory(appDataDir().path + r'\ffmpeg');
+  await targetDir.create(recursive: true);
+  final bytes = await _downloadBytes(_ffmpegDownloadUrl);
+
+  onLog?.call('ffmpeg uitpakken...');
+  final archive = ZipDecoder().decodeBytes(bytes);
+  var foundFfmpeg = false;
+  var foundFfprobe = false;
+  for (final file in archive.files) {
+    if (!file.isFile) continue;
+    final name = file.name.replaceAll('\\', '/');
+    if (name.endsWith('/bin/ffmpeg.exe')) {
+      await File(
+        '${targetDir.path}\\ffmpeg.exe',
+      ).writeAsBytes(file.content as List<int>);
+      foundFfmpeg = true;
+    } else if (name.endsWith('/bin/ffprobe.exe')) {
+      await File(
+        '${targetDir.path}\\ffprobe.exe',
+      ).writeAsBytes(file.content as List<int>);
+      foundFfprobe = true;
+    }
+  }
+  if (!foundFfmpeg || !foundFfprobe) {
+    throw StateError('ffmpeg.exe/ffprobe.exe niet gevonden in download.');
+  }
+  onLog?.call('ffmpeg geinstalleerd.');
+  return targetDir.path;
 }
 
 // yt-dlp lost YouTube's "n"-throttling (nsig) sinds kort niet meer intern op:
@@ -568,10 +679,22 @@ Future<void> runDownload({
   required bool isPlaylist,
   required String outputDir,
 }) async {
-  final exe = await resolveYtDlp();
+  void onLog(String line) {
+    writeMessage({'ok': true, 'line': line});
+  }
+
+  final String exe;
+  final String? ffmpegDir;
+  try {
+    exe = await resolveYtDlp(onLog: onLog);
+    ffmpegDir = await ensureFfmpegDir(onLog: onLog);
+  } catch (e) {
+    await writeMessage({'ok': false, 'done': true, 'error': e.toString()});
+    return;
+  }
+
   await Directory(outputDir).create(recursive: true);
   final outTemplate = '$outputDir${Platform.pathSeparator}%(title)s.%(ext)s';
-  final ffmpegDir = await resolveFfmpegDir();
   final jsArgs = await resolveJsRuntimeArgs();
 
   final args = <String>[
@@ -603,42 +726,24 @@ Future<void> runDownload({
     args.addAll(['-f', id, '--merge-output-format', 'mp4']);
   }
 
-  if (ffmpegDir == null) {
-    // Laatste check: zonder ffmpeg faalt merge/postprocess vaak.
-    try {
-      final probe = await Process.run('ffprobe', ['-version']);
-      if (probe.exitCode != 0) {
-        await writeMessage({
-          'ok': false,
-          'done': true,
-          'error':
-              'ffmpeg/ffprobe niet gevonden. Open eerst de Windows-app één keer (die bundelt ffmpeg), of installeer ffmpeg op PATH.',
-        });
-        return;
-      }
-    } catch (_) {
-      await writeMessage({
-        'ok': false,
-        'done': true,
-        'error':
-            'ffmpeg/ffprobe niet gevonden. Open eerst de Windows-app één keer (die bundelt ffmpeg), of installeer ffmpeg op PATH.',
-      });
-      return;
-    }
-  }
-
-  final process = await Process.start(exe, args);
+  final process = await Process.start(
+    exe,
+    args,
+    environment: _ytDlpEnvironment,
+  );
   String? lastPath;
   final stderrBuf = StringBuffer();
 
+  const lenientUtf8 = Utf8Decoder(allowMalformed: true);
   final stderrSub = process.stderr
-      .transform(utf8.decoder)
+      .transform(lenientUtf8)
       .transform(const LineSplitter())
       .listen((line) => stderrBuf.writeln(line));
 
-  await for (final line in process.stdout
-      .transform(utf8.decoder)
-      .transform(const LineSplitter())) {
+  await for (final line
+      in process.stdout
+          .transform(lenientUtf8)
+          .transform(const LineSplitter())) {
     if (line.contains(filepathMarker)) {
       lastPath = line
           .substring(line.indexOf(filepathMarker) + filepathMarker.length)

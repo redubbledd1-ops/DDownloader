@@ -534,6 +534,15 @@ class L10n {
     AppLanguage.pt => 'Não foi possível instalar o ffmpeg: $e',
   };
 
+  String errInstallYtDlp(String e) => switch (language) {
+    AppLanguage.nl => 'Kon yt-dlp niet installeren: $e',
+    AppLanguage.en => 'Could not install yt-dlp: $e',
+    AppLanguage.de => 'yt-dlp konnte nicht installiert werden: $e',
+    AppLanguage.fr => "Impossible d'installer yt-dlp : $e",
+    AppLanguage.es => 'No se pudo instalar yt-dlp: $e',
+    AppLanguage.pt => 'Não foi possível instalar o yt-dlp: $e',
+  };
+
   String errDeleteFile(String e) => switch (language) {
     AppLanguage.nl => 'Kon bestand niet verwijderen: $e',
     AppLanguage.en => 'Could not delete file: $e',

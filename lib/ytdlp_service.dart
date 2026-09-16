@@ -10,7 +10,17 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'models.dart';
 
-const String ytDlpPath = r'C:\Program Files\yt-dlpd.exe';
+// Oudere installaties waarbij de gebruiker yt-dlp zelf naar deze plek had
+// gezet (voorheen de enige ondersteunde locatie) blijven werken; nieuwe
+// installaties downloaden yt-dlp automatisch, zie ensureYtDlp() hieronder.
+const String _legacyYtDlpPath = r'C:\Program Files\yt-dlpd.exe';
+
+// yt-dlp's eigen "latest"-release-alias: altijd de nieuwste standalone exe,
+// geen versienummer nodig. yt-dlp breekt regelmatig door YouTube-wijzigingen
+// en heeft daarom vaak updates nodig — zelf bundelen zou na verloop van
+// tijd stilzwijgend kapot gaan.
+const String _ytDlpDownloadUrl =
+    'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe';
 
 // Portable, statisch gelinkte Windows-build (GPL, BtbN's altijd-actuele
 // "latest" release-tag). Gebruikt als het systeem geen eigen ffmpeg heeft.
@@ -68,9 +78,11 @@ class PlaylistProbeResult {
 class YtDlpService {
   bool _androidReady = false;
 
-  String get unavailableMessage => Platform.isAndroid
-      ? 'yt-dlp kon niet worden geïnitialiseerd op dit toestel.'
-      : 'yt-dlp.exe niet gevonden op $ytDlpPath';
+  // Enkel nog relevant voor Android: op desktop wordt yt-dlp bij het
+  // eerste gebruik automatisch gedownload (zie ensureYtDlp hieronder), dus
+  // daar is niets meer dat blijvend "niet beschikbaar" kan zijn.
+  String get unavailableMessage =>
+      'yt-dlp kon niet worden geïnitialiseerd op dit toestel.';
 
   Future<bool> exeExists() async {
     if (Platform.isAndroid) {
@@ -83,12 +95,77 @@ class YtDlpService {
         return false;
       }
     }
-    return File(ytDlpPath).exists();
+    return true;
   }
 
+  String? _resolvedYtDlpPath;
   String? _bundledFfmpegDir;
   String? _jsRuntimeArg;
   bool _jsRuntimeChecked = false;
+
+  // yt-dlp hoeft niet meer handmatig geïnstalleerd te worden: bij het
+  // eerste gebruik wordt de nieuwste versie automatisch naar de app-datamap
+  // gedownload (zelfde patroon als ensureFfmpeg hieronder). Een eerdere
+  // handmatige installatie op _legacyYtDlpPath blijft ook gewoon werken.
+  Future<String> ensureYtDlp({void Function(String)? onLog}) async {
+    if (_resolvedYtDlpPath != null) return _resolvedYtDlpPath!;
+
+    if (await File(_legacyYtDlpPath).exists()) {
+      _resolvedYtDlpPath = _legacyYtDlpPath;
+      return _resolvedYtDlpPath!;
+    }
+
+    final supportDir = await getApplicationSupportDirectory();
+    final targetFile = File(p.join(supportDir.path, 'yt-dlp', 'yt-dlp.exe'));
+    if (await targetFile.exists()) {
+      _resolvedYtDlpPath = targetFile.path;
+      return _resolvedYtDlpPath!;
+    }
+
+    onLog?.call('yt-dlp niet gevonden, laatste versie downloaden...');
+    await targetFile.parent.create(recursive: true);
+
+    final client = HttpClient();
+    try {
+      final request = await client.getUrl(Uri.parse(_ytDlpDownloadUrl));
+      final response = await request.close();
+      if (response.statusCode != 200) {
+        throw YtDlpException(
+          'yt-dlp-download mislukt (HTTP ${response.statusCode}).',
+        );
+      }
+      final total = response.contentLength;
+      final bytes = <int>[];
+      var received = 0;
+      var lastPct = -1;
+      await for (final chunk in response) {
+        bytes.addAll(chunk);
+        received += chunk.length;
+        if (total > 0) {
+          final pct = (received / total * 100).floor();
+          if (pct != lastPct && pct % 10 == 0) {
+            lastPct = pct;
+            onLog?.call('yt-dlp downloaden... $pct%');
+          }
+        }
+      }
+      await targetFile.writeAsBytes(bytes);
+      onLog?.call('yt-dlp geïnstalleerd.');
+    } catch (e) {
+      if (await targetFile.exists()) {
+        try {
+          await targetFile.delete();
+        } catch (_) {}
+      }
+      if (e is YtDlpException) rethrow;
+      throw YtDlpException('Kon yt-dlp niet downloaden: $e');
+    } finally {
+      client.close(force: true);
+    }
+
+    _resolvedYtDlpPath = targetFile.path;
+    return _resolvedYtDlpPath!;
+  }
 
   Future<String?> _resolveBundledFfmpegDir() async {
     if (_bundledFfmpegDir != null) return _bundledFfmpegDir;
@@ -329,8 +406,9 @@ class YtDlpService {
     String url,
     List<String> args,
   ) async {
+    final ytDlp = await ensureYtDlp();
     final result = await Process.run(
-      ytDlpPath,
+      ytDlp,
       args,
       environment: _ytDlpEnvironment,
       // yt-dlp draait als Python-exe; op Windows kan de systeem-codepage
@@ -438,6 +516,7 @@ class YtDlpService {
     String? formatId,
     String? ffmpegDir,
   }) async* {
+    final ytDlp = await ensureYtDlp();
     final jsArgs = await _ensureJsRuntimeArgs();
     final outTemplate = p.join(outputDir, '%(title)s.%(ext)s');
     final args = <String>[
@@ -468,7 +547,7 @@ class YtDlpService {
     }
 
     final process = await Process.start(
-      ytDlpPath,
+      ytDlp,
       args,
       environment: _ytDlpEnvironment,
     );

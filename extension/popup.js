@@ -185,6 +185,11 @@ function sendNative(message, onMessage) {
       try {
         port.disconnect();
       } catch (_) {}
+      // Een eerdere mislukte ping kan de "app niet gevonden"-banner
+      // hebben getoond; die bleef daarna voor altijd staan, ook nadat
+      // latere aanroepen (bv. een handmatige download) prima werkten.
+      // Elke geslaagde aanroep ruimt 'm daarom op.
+      if (fn === resolve) showGithubLink(false);
       fn(value);
     };
 
@@ -317,6 +322,46 @@ async function sendToApp() {
   }
 }
 
+// De download draait in de background service worker (niet hier in de
+// popup) zodat hij doorloopt als deze popup sluit — zie background.js.
+// Voortgang komt binnen via chrome.runtime.onMessage; hieronder passen we
+// dat toe op de UI, ongeacht of de download net gestart is of al liep
+// toen deze popup werd geopend.
+let downloadListenerAttached = false;
+
+function attachDownloadListener() {
+  if (downloadListenerAttached) return;
+  downloadListenerAttached = true;
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg?.type === "downloadUpdate" || msg?.type === "downloadDone") {
+      applyDownloadState(msg.state);
+    }
+  });
+}
+
+function applyDownloadState(state) {
+  if (!state) return;
+  progressEl.hidden = false;
+  progressEl.value = state.progress || 0;
+  if (state.statusLine) {
+    setStatus(
+      typeof state.progress === "number" && !state.done
+        ? `Downloaden… ${state.progress.toFixed(1)}%`
+        : state.statusLine
+    );
+  }
+  if (state.done) {
+    setBusy(false);
+    if (state.ok) {
+      progressEl.value = 100;
+      setStatus(state.path ? `Klaar: ${state.path}` : "Download voltooid.", "ok");
+      if (state.path) showDownloadedActions(state.path);
+    } else {
+      setStatus(state.error || "Download mislukt", "error");
+    }
+  }
+}
+
 async function downloadHere({ auto = false } = {}) {
   const url = urlEl.value.trim();
   if (!url) {
@@ -327,6 +372,7 @@ async function downloadHere({ auto = false } = {}) {
     setStatus("Alleen http(s)-URL’s kunnen gedownload worden.", "error");
     return;
   }
+  attachDownloadListener();
   setBusy(true);
   hideDownloadedActions();
   progressEl.hidden = false;
@@ -336,37 +382,38 @@ async function downloadHere({ auto = false } = {}) {
       ? "Icoon-klik: download gestart met app-instellingen…"
       : "Direct downloaden…"
   );
+  // Gebruik altijd de exe-settings (zojuist geladen / in de velden).
+  const format = formatEl.value || "mp4";
+  const playlistMode = playlistEl.value || "ask";
+  const formatId = auto ? undefined : chosenFormatId();
+  let res;
   try {
-    // Gebruik altijd de exe-settings (zojuist geladen / in de velden).
-    const format = formatEl.value || "mp4";
-    const playlistMode = playlistEl.value || "ask";
-    const formatId = auto ? undefined : chosenFormatId();
-    const res = await sendNative(
-      {
-        cmd: "download",
+    res = await chrome.runtime.sendMessage({
+      type: "startDirectDownload",
+      payload: {
         url,
         format,
         formatId,
         isPlaylist: playlistMode === "playlist",
         outputDir: downloadDirEl.value.trim() || undefined,
       },
-      (msg) => {
-        if (typeof msg.progress === "number") {
-          progressEl.value = msg.progress;
-          setStatus(`Downloaden… ${msg.progress.toFixed(1)}%`);
-        } else if (msg.line) {
-          setStatus(msg.line);
-        }
-      }
-    );
-    progressEl.value = 100;
-    setStatus(res.path ? `Klaar: ${res.path}` : "Download voltooid.", "ok");
-    if (res.path) showDownloadedActions(res.path);
+    });
   } catch (e) {
-    setStatus(e.message || String(e), "error");
-  } finally {
     setBusy(false);
+    setStatus(e.message || String(e), "error");
+    return;
   }
+  if (!res || !res.started) {
+    setBusy(false);
+    const reason =
+      res && res.reason === "already-running"
+        ? "Er loopt al een download."
+        : (res && res.reason) || "Kon download niet starten.";
+    setStatus(reason, "error");
+    return;
+  }
+  // Niet wachten op voltooiing: die komt via de listener hierboven binnen,
+  // ook als deze popup inmiddels gesloten en heropend is.
 }
 
 formatEl.addEventListener("change", updateFormatUi);
@@ -428,6 +475,18 @@ urlEl.addEventListener("input", () => {
       await sendNative({ cmd: "ping" });
     }
     await loadSettings();
+
+    // Een download loopt in de background worker door na het sluiten van
+    // de popup (zie background.js) — bij heropenen tonen we die
+    // voortgang in plaats van een tweede download te starten.
+    const dl = await chrome.runtime.sendMessage({ type: "getDownloadState" });
+    if (dl?.active) {
+      attachDownloadListener();
+      setBusy(true);
+      applyDownloadState(dl.state);
+      return;
+    }
+
     setBusy(false);
     // Icoon geklikt → popup opent. Alleen meteen downloaden als de
     // gebruiker dat expliciet heeft aangezet (staat standaard uit) EN

@@ -4,10 +4,14 @@ Flutter-app (Windows + Android) om video/audio te downloaden via yt-dlp, plus ee
 
 ## Vereisten
 
-- [yt-dlpd.exe](https://github.com/yt-dlp/yt-dlp) op `C:\Program Files\yt-dlpd.exe` (Windows)
-- ffmpeg op PATH, of laat de Windows-app een portable build ophalen
 - Flutter SDK (desktop/Android-app)
 - Dart SDK (zit bij Flutter; native messaging host compileren)
+
+yt-dlp en ffmpeg hoef je niet zelf te installeren: zowel de Windows-app als
+de browser-extentie downloaden die automatisch bij eerste gebruik (naar
+`%APPDATA%\com.example\Downloader\`, gedeeld tussen beide — wat het eerst
+draait downloadt ze, de ander hergebruikt ze). Had je yt-dlp handmatig naar
+`C:\Program Files\yt-dlpd.exe` gezet, dan blijft dat ook gewoon werken.
 
 ## Windows / Android-app
 
@@ -55,9 +59,12 @@ Optioneel: `-AppExe "C:\pad\naar\downoader.exe"` `-Browsers chrome|edge|both`
 
 ### 3. Gebruik
 
-1. Open de Windows-app minstens één keer
-2. Herlaad de extentie
-3. Open een video-tab → extentie → eventueel settings aanpassen → **Naar app sturen & downloaden**
+1. Herlaad de extentie
+2. Open een video-tab → extentie → eventueel settings aanpassen → **Naar app sturen & downloaden**
+
+De eerste keer downloaden duurt iets langer: yt-dlp en (indien nodig) ffmpeg
+worden dan automatisch opgehaald. De Windows-app hoeft daarvoor niet open
+te staan of ooit gedraaid te hebben.
 
 ### Verwijderen
 
@@ -79,3 +86,6 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall-native-host.ps1
 - Geen Flutter-web target: browser kan yt-dlp niet draaien.
 - Android ongewijzigd (geen extentie).
 - Na verplaatsen van `downoader.exe` of nieuwe Extension ID: install-script opnieuw draaien.
+- yt-dlp update je door de gedownloade kopie te verwijderen uit
+  `%APPDATA%\com.example\Downloader\yt-dlp\`; bij de volgende download
+  wordt de nieuwste versie weer opgehaald.

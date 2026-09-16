@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 ThemeData buildAppTheme(Brightness brightness) {
   final isLight = brightness == Brightness.light;
@@ -38,6 +39,13 @@ ThemeData buildAppTheme(Brightness brightness) {
       backgroundColor: bg,
       foregroundColor: fg,
       elevation: 0,
+      // Android-statusbalk moet exact de achtergrondkleur volgen (geen
+      // afwijkende systeemkleur boven de app-inhoud).
+      systemOverlayStyle: SystemUiOverlayStyle(
+        statusBarColor: bg,
+        statusBarIconBrightness: isLight ? Brightness.dark : Brightness.light,
+        statusBarBrightness: isLight ? Brightness.light : Brightness.dark,
+      ),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(

@@ -129,7 +129,7 @@ class _SettingsPageState extends State<SettingsPage> {
               child: Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton.icon(
+                    child: FilledButton.icon(
                       onPressed: _pickDir,
                       icon: const Icon(Icons.drive_file_move_outline),
                       label: Text(t.changeFolderButton),

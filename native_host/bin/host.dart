@@ -485,9 +485,13 @@ Future<bool> isDownoaderRunning() async {
 
 Future<String?> guessAppExe() async {
   final hostDir = File(Platform.resolvedExecutable).parent.path;
+  final pf86 = Platform.environment['ProgramFiles(x86)'] ?? r'C:\Program Files (x86)';
+  final pf = Platform.environment['ProgramFiles'] ?? r'C:\Program Files';
   final candidates = <String>[
     '$hostDir\\downoader.exe',
     '$hostDir\\..\\downoader.exe',
+    '$pf86\\DownloaderD\\downoader.exe',
+    '$pf\\DownloaderD\\downoader.exe',
     '$hostDir\\..\\..\\Release\\downoader.exe',
     '$hostDir\\..\\..\\..\\build\\windows\\x64\\runner\\Release\\downoader.exe',
   ];

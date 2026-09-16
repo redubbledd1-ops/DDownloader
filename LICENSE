@@ -1,0 +1,34 @@
+Downloader License (source-available, non-commercial)
+
+Copyright (c) 2026 Frank Vermeulen (redubbledd1-ops)
+
+Permission is granted to download and use Downloader (including the Windows
+installer, Android APK, and related releases) for personal and internal use,
+free of charge.
+
+You MAY:
+- Install and run the software on your own devices
+- View the source code on GitHub
+- Propose changes (for example via pull requests or by contacting the author)
+
+You may NOT, without prior written permission from the copyright holder:
+- Sell the software, or charge others for copies, installs, or redistributed builds
+- Redistribute modified versions of the software as your own product
+- Remove or alter copyright / license notices
+- Use the software name or branding in a way that suggests official endorsement
+
+Modifications to the source code (forks, patches, derivative works) are only
+allowed in consultation with / with permission from the copyright holder,
+except for private local experiments that you do not redistribute.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Third-party components (including but not limited to yt-dlp, ffmpeg, deno, and
+Flutter/plugins) remain under their own licenses. Those licenses still apply
+to those components when bundled with Downloader.

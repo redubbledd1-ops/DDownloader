@@ -2,6 +2,7 @@
 ; Built by scripts\build-windows-installer.ps1
 
 #define MyAppName "Downloader"
+#define MyAppDirName "DownloaderD"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Downloader"
 #define MyAppURL "https://github.com/redubbledd1-ops/Downloader"
@@ -22,8 +23,10 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues
 AppUpdatesURL={#MyAppURL}/releases
-DefaultDirName={autopf}\{#MyAppName}
-DefaultGroupName={#MyAppName}
+; Always install under 32-bit Program Files so everything lives together:
+; {app}\downoader.exe, tools\, host\, extension\
+DefaultDirName={commonpf32}\{#MyAppDirName}
+DefaultGroupName={#MyAppDirName}
 DisableProgramGroupPage=yes
 OutputDir={#DistDir}
 OutputBaseFilename=DownloaderSetup-{#MyAppVersion}

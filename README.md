@@ -2,11 +2,21 @@
 
 Flutter app (Windows + Android) to download video/audio via yt-dlp, plus a Chrome/Edge extension that sends links and settings to the Windows app — no web server.
 
+## License / what you may do
+
+See [`LICENSE`](LICENSE). Short version:
+
+- **You may** use the app for free (personal / internal use) and view the source on GitHub.
+- **You may not** sell the app or redistribute modified builds as your own product.
+- **Code changes** (public forks / shared patches) only **in consultation with** the author — open a discussion/PR or ask first.
+- The software is provided **as is**, without warranty.
+- Bundled tools (yt-dlp, ffmpeg, …) keep **their own** licenses.
+
 ## Windows use
 
 1. Go to [Releases](https://github.com/redubbledd1-ops/Downloader/releases)
 2. Download `DownloaderSetup-1.0.0.exe` (or the latest Setup)
-3. Run the installer (app + tools; optional Chrome/Edge extension setup)
+3. Run the installer (default folder: `C:\Program Files (x86)\DownloaderD` — app, tools, host, and extension all live there; optional Chrome/Edge extension setup)
 
 During setup you choose a **download folder**, and you can enable **Chrome** and/or **Edge**. The installer prepares the extension files, registers native messaging, and opens the extensions page so you can **Load unpacked** once.
 

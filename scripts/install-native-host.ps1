@@ -20,6 +20,8 @@ if (-not $HostExe) {
         (Join-Path $root "extension\host\downoader_native_host.exe"),
         (Join-Path $root "Release\host\downoader_native_host.exe"),
         (Join-Path $root "build\windows\x64\runner\Release\host\downoader_native_host.exe"),
+        "${env:ProgramFiles(x86)}\DownloaderD\host\downoader_native_host.exe",
+        "${env:ProgramFiles}\DownloaderD\host\downoader_native_host.exe",
         "${env:ProgramFiles}\Downloader\host\downoader_native_host.exe"
     )) {
         if (Test-Path $h) { $HostExe = $h; break }
@@ -43,6 +45,8 @@ if (-not $AppExe) {
     $candidates = @(
         (Join-Path $root "build\windows\x64\runner\Release\downoader.exe"),
         (Join-Path $root "Release\downoader.exe"),
+        "${env:ProgramFiles(x86)}\DownloaderD\downoader.exe",
+        "${env:ProgramFiles}\DownloaderD\downoader.exe",
         "${env:ProgramFiles}\Downloader\downoader.exe",
         "${env:ProgramFiles(x86)}\Downloader\downoader.exe"
     )

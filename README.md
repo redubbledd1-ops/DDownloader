@@ -1,26 +1,26 @@
 ﻿# Downloader
 
-Flutter-app (Windows + Android) om video/audio te downloaden via yt-dlp, plus een Chrome/Edge-extentie die links en settings naar de Windows-app stuurt — zonder webserver.
+Flutter app (Windows + Android) to download video/audio via yt-dlp, plus a Chrome/Edge extension that sends links and settings to the Windows app — no web server.
 
-## Eindgebruikers (Windows)
+## Windows use
 
-1. Ga naar [Releases](https://github.com/redubbledd1-ops/Downloader/releases)
-2. Download `DownloaderSetup-1.0.0.exe` (of de nieuwste Setup)
-3. Run de installer → klaar (app + tools + optioneel Chrome/Edge-extentie)
+1. Go to [Releases](https://github.com/redubbledd1-ops/Downloader/releases)
+2. Download `DownloaderSetup-1.0.0.exe` (or the latest Setup)
+3. Run the installer (app + tools; optional Chrome/Edge extension setup)
 
-Tijdens setup kun je **Chrome** en/of **Edge** aanvinken. De installer zet de extentie klaar, registreert native messaging, en opent de extentiepagina zodat je eenmalig **Load unpacked** kiest.
+During setup you can enable **Chrome** and/or **Edge**. The installer prepares the extension files, registers native messaging, and opens the extensions page so you can **Load unpacked** once.
 
-## Eindgebruikers (Android)
+## Android use
 
-1. Ga naar [Releases](https://github.com/redubbledd1-ops/Downloader/releases)
-2. Download `Downloader-1.0.0.apk`
-3. Open het bestand op je telefoon → toestaan “installeren uit onbekende bronnen” indien gevraagd → installeren
+1. Go to [Releases](https://github.com/redubbledd1-ops/Downloader/releases)
+2. Download `Downloader-1.0.0.apk` — this is the **Android phone/tablet app** (not a browser extension)
+3. Open the file on your device → allow install from unknown sources if asked → install
 
-De APK is een release-build (sideload). De Chrome/Edge-extentie werkt alleen op Windows, niet op Android.
+The Chrome/Edge extension is Windows-only. On Android you only need the APK app.
 
-### Release publiceren (voor jou als maintainer)
+### Publishing a release (maintainers)
 
-De Setup.exe / APK staan lokaal in `dist\` na een build, maar komen niet automatisch op GitHub. Publiceren:
+Built files land in `dist\` locally; they are not uploaded to GitHub automatically.
 
 ```powershell
 # Windows Setup
@@ -30,103 +30,103 @@ powershell -ExecutionPolicy Bypass -File scripts\build-windows-installer.ps1
 flutter build apk --release
 Copy-Item -Force build\app\outputs\flutter-apk\app-release.apk dist\Downloader-1.0.0.apk
 
-# Nieuwe release (één regel, werkt in cmd én PowerShell)
-gh release create v1.0.0 "dist\DownloaderSetup-1.0.0.exe" "dist\Downloader-1.0.0.apk" --title "Downloader 1.0.0" --notes "Windows-installer + Android APK"
+# Create a new release (one line — works in cmd and PowerShell)
+gh release create v1.0.0 "dist\DownloaderSetup-1.0.0.exe" "dist\Downloader-1.0.0.apk" --title "Downloader 1.0.0" --notes "Windows installer + Android APK"
 
-# Of bestanden toevoegen aan een bestaande release
+# Or add files to an existing release
 gh release upload v1.0.0 "dist\Downloader-1.0.0.apk" --clobber
 ```
 
-Daarna staan de bestanden op: `https://github.com/redubbledd1-ops/Downloader/releases/tag/v1.0.0`
+Release page: `https://github.com/redubbledd1-ops/Downloader/releases/tag/v1.0.0`
 
-## Ontwikkelaars — Windows-installer bouwen
+## Developers — build the Windows installer
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\build-windows-installer.ps1
 ```
 
-Dit doet achtereenvolgens:
+This will:
 
 1. `flutter build windows --release`
-2. yt-dlp / ffmpeg / deno downloaden naar `build\...\Release\tools\`
-3. Native host compileren naar `Release\host\`
-4. Setup.exe maken met Inno Setup → `dist\DownloaderSetup-1.0.0.exe`
+2. Download yt-dlp / ffmpeg / deno into `build\...\Release\tools\`
+3. Compile the native host into `Release\host\`
+4. Build Setup.exe with Inno Setup → `dist\DownloaderSetup-1.0.0.exe`
 
-Vereisten voor dit build-script: Flutter SDK + Dart SDK. Inno Setup 6+ wordt via winget geinstalleerd als die ontbreekt.
+Requires Flutter SDK + Dart SDK. Inno Setup 6+ is installed via winget if missing.
 
-## Ontwikkelaars — app draaien zonder installer
+## Developers — run without the installer
 
 ```bash
 flutter pub get
 flutter run -d windows
-# of
+# or
 flutter run -d <android-device>
 ```
 
-Zonder gebundelde `tools\`-map downloadt de app yt-dlp/ffmpeg/deno bij eerste gebruik naar `%APPDATA%\com.example\Downloader\` (dev-fallback). Een oude handmatige kopie op `C:\Program Files\yt-dlpd.exe` blijft ook werken.
+Without a bundled `tools\` folder, the app downloads yt-dlp/ffmpeg/deno on first use into `%APPDATA%\com.example\Downloader\` (dev fallback). A legacy manual copy at `C:\Program Files\yt-dlpd.exe` still works.
 
-Op Windows schrijft de app bij start haar eigen pad weg (`flutter.app_exe`), zodat de extentie de app kan openen.
+On Windows startup the app stores its own path (`flutter.app_exe`) so the extension can launch it.
 
-## Browser-extentie → Windows-app
+## Browser extension → Windows app
 
 ```mermaid
 flowchart LR
-  Tab[Browser_tab] --> Ext[Extentie]
+  Tab[Browser_tab] --> Ext[Extension]
   Ext -->|Native_Messaging| Host[native_host]
   Host -->|settings_prefs| Prefs[shared_preferences]
   Host -->|extension_inbox| App[downoader.exe]
   App --> YtDlp[yt-dlp]
 ```
 
-- **Settings** in de popup = globale app-settings (downloadmap, formaat, playlist-modus, dark mode). Bron: `%APPDATA%\com.example\Downloader\shared_preferences.json` (zelfde als de exe).
-- **Naar app sturen** zet de tab-URL in een inbox; de draaiende app pikt die op en start de download. Draait de app niet, dan wordt `downoader.exe` gestart.
-- **Direct downloaden** gebruikt yt-dlp via de native host met dezelfde settings (zonder app-UI).
+- **Settings** in the popup = global app settings (download folder, format, playlist mode, dark mode). Source: `%APPDATA%\com.example\Downloader\shared_preferences.json` (same as the exe).
+- **Send to app** puts the tab URL in an inbox; a running app picks it up and starts the download. If the app is not running, `downoader.exe` is started.
+- **Download here** runs yt-dlp via the native host with the same settings (no app UI).
 
-### 1. Extentie laden
+### 1. Load the extension
 
-1. `chrome://extensions` of `edge://extensions`
-2. Developer mode → **Load unpacked** → map [`extension`](extension)
-3. Extension ID kopiëren
+1. `chrome://extensions` or `edge://extensions`
+2. Developer mode → **Load unpacked** → [`extension`](extension) folder
+3. Copy the extension ID
 
-### 2. Native host registreren
+### 2. Register the native host
 
-Na een installer-build staat de host al in `Release\host\` (of onder Program Files na installatie). Voor development:
+After an installer build the host is in `Release\host\` (or under Program Files after install). For development:
 
 ```powershell
 cd native_host
 dart pub get
 dart compile exe bin/host.dart -o ..\extension\host\downoader_native_host.exe
 
-powershell -ExecutionPolicy Bypass -File scripts\install-native-host.ps1 -ExtensionId JOUW_EXTENSION_ID
+powershell -ExecutionPolicy Bypass -File scripts\install-native-host.ps1 -ExtensionId YOUR_EXTENSION_ID
 ```
 
-Optioneel: `-AppExe "C:\pad\naar\downoader.exe"` `-Browsers chrome|edge|both`
+Optional: `-AppExe "C:\path\to\downoader.exe"` `-Browsers chrome|edge|both`
 
-### 3. Gebruik
+### 3. Usage
 
-1. Herlaad de extentie
-2. Open een video-tab → extentie → eventueel settings aanpassen → **Naar app sturen & downloaden**
+1. Reload the extension
+2. Open a video tab → extension → adjust settings if needed → **Send to app** / download
 
-### Verwijderen
+### Uninstall
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\uninstall-native-host.ps1
 ```
 
-## Projectstructuur
+## Project layout
 
-| Pad | Rol |
-|-----|-----|
-| `lib/` | Flutter UI + yt-dlp + inbox-poller |
+| Path | Role |
+|------|------|
+| `lib/` | Flutter UI + yt-dlp + inbox poller |
 | `native_host/` | Native Messaging host (settings + sendToApp + download) |
-| `extension/` | MV3 Chrome/Edge-extentie |
-| `scripts/` | Install/uninstall native host + Windows installer build |
-| `installer/` | Inno Setup-script |
-| `dist/` | Gegenereerde Setup.exe |
+| `extension/` | MV3 Chrome/Edge extension |
+| `scripts/` | Native host install/uninstall + Windows installer build |
+| `installer/` | Inno Setup script |
+| `dist/` | Generated Setup.exe / APK (not committed) |
 
-## Notities
+## Notes
 
-- Geen Flutter-web target: browser kan yt-dlp niet draaien.
-- Android ongewijzigd (geen extentie).
-- Na verplaatsen van `downoader.exe` of nieuwe Extension ID: install-script opnieuw draaien.
-- yt-dlp in een geinstalleerde app: vervang `{installDir}\tools\yt-dlp.exe`, of verwijder de APPDATA-kopie zodat de gebundelde versie weer wint.
+- No Flutter web target: the browser cannot run yt-dlp.
+- Android has no browser extension — use the APK app only.
+- After moving `downoader.exe` or changing the extension ID: re-run the install script.
+- To update yt-dlp in an installed app: replace `{installDir}\tools\yt-dlp.exe`, or delete the APPDATA copy so the bundled one is used again.

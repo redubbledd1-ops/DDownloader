@@ -947,7 +947,6 @@ class _HomePageState extends State<HomePage> {
                 Text(_status, style: Theme.of(context).textTheme.bodySmall),
                 const SizedBox(height: 16),
               ],
-              const Divider(),
               Row(
                 children: [
                   Expanded(child: Text(t.downloadedFilesHeader)),

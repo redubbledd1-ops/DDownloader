@@ -57,6 +57,20 @@ ThemeData buildAppTheme(Brightness brightness) {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     ),
+    // Alle segmenten (niet alleen de geselecteerde) krijgen dezelfde
+    // volle achtergrond — selectie wordt getoond via het vinkje, niet via
+    // een afwijkende kleur of scheidingslijntjes tussen segmenten.
+    segmentedButtonTheme: SegmentedButtonThemeData(
+      style: ButtonStyle(
+        backgroundColor: WidgetStateProperty.all(fg),
+        foregroundColor: WidgetStateProperty.all(bg),
+        iconColor: WidgetStateProperty.all(bg),
+        side: const WidgetStatePropertyAll(BorderSide.none),
+        shape: WidgetStateProperty.all(
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      ),
+    ),
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith(
         (states) => states.contains(WidgetState.selected)

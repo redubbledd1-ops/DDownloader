@@ -10,22 +10,34 @@ Flutter-app (Windows + Android) om video/audio te downloaden via yt-dlp, plus ee
 
 Tijdens setup kun je **Chrome** en/of **Edge** aanvinken. De installer zet de extentie klaar, registreert native messaging, en opent de extentiepagina zodat je eenmalig **Load unpacked** kiest.
 
+## Eindgebruikers (Android)
+
+1. Ga naar [Releases](https://github.com/redubbledd1-ops/Downloader/releases)
+2. Download `Downloader-1.0.0.apk`
+3. Open het bestand op je telefoon → toestaan “installeren uit onbekende bronnen” indien gevraagd → installeren
+
+De APK is een release-build (sideload). De Chrome/Edge-extentie werkt alleen op Windows, niet op Android.
+
 ### Release publiceren (voor jou als maintainer)
 
-De Setup.exe staat lokaal in `dist\` na een build, maar komt niet automatisch op GitHub. Publiceren:
+De Setup.exe / APK staan lokaal in `dist\` na een build, maar komen niet automatisch op GitHub. Publiceren:
 
 ```powershell
-# 1. Bouwen (als dist\ nog niet fris is)
+# Windows Setup
 powershell -ExecutionPolicy Bypass -File scripts\build-windows-installer.ps1
 
-# 2. Release + Setup.exe uploaden
-gh release create v1.0.0 `
-  "dist\DownloaderSetup-1.0.0.exe" `
-  --title "Downloader 1.0.0" `
-  --notes "Windows-installer met app, yt-dlp/ffmpeg/deno en browser-extentie."
+# Android APK
+flutter build apk --release
+Copy-Item -Force build\app\outputs\flutter-apk\app-release.apk dist\Downloader-1.0.0.apk
+
+# Nieuwe release (één regel, werkt in cmd én PowerShell)
+gh release create v1.0.0 "dist\DownloaderSetup-1.0.0.exe" "dist\Downloader-1.0.0.apk" --title "Downloader 1.0.0" --notes "Windows-installer + Android APK"
+
+# Of bestanden toevoegen aan een bestaande release
+gh release upload v1.0.0 "dist\Downloader-1.0.0.apk" --clobber
 ```
 
-Daarna staat het bestand op: `https://github.com/redubbledd1-ops/Downloader/releases/tag/v1.0.0`
+Daarna staan de bestanden op: `https://github.com/redubbledd1-ops/Downloader/releases/tag/v1.0.0`
 
 ## Ontwikkelaars — Windows-installer bouwen
 

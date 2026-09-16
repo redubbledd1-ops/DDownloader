@@ -949,14 +949,11 @@ class _HomePageState extends State<HomePage> {
                     tooltip: t.deleteAllTooltip,
                     onPressed: _downloaded.isEmpty ? null : _deleteAllItems,
                     style: ButtonStyle(
+                      // Altijd vol zwart/wit, alleen grijs bij hover — ook
+                      // in disabled-stand (niets te verwijderen) geen dim.
                       foregroundColor: WidgetStateProperty.resolveWith((
                         states,
                       ) {
-                        if (states.contains(WidgetState.disabled)) {
-                          return Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.3);
-                        }
                         if (states.contains(WidgetState.hovered)) {
                           return Colors.grey;
                         }

@@ -16,6 +16,9 @@ class Settings {
   static const _keyPreferredVideoQuality = 'preferred_video_quality';
   static const _keyAppExe = 'app_exe';
   static const _keyAutoDownloadOnClick = 'auto_download_on_click';
+  static const _keyLanguage = 'app_language';
+  static const _keyFolderHistory = 'folder_history';
+  static const _keyDownloadHistory = 'download_history_all';
 
   /// Zelfde map als shared_preferences op Windows: Roaming\com.example\Downloader
   static Future<Directory> appDataDir() async {
@@ -158,6 +161,73 @@ class Settings {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       _keyDownloaded,
+      jsonEncode(items.map((i) => i.toJson()).toList()),
+    );
+  }
+
+  static Future<AppLanguage> getLanguage() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_keyLanguage);
+    return AppLanguage.values.firstWhere(
+      (l) => l.name == raw,
+      orElse: () => AppLanguage.nl,
+    );
+  }
+
+  static Future<void> setLanguage(AppLanguage language) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyLanguage, language.name);
+  }
+
+  /// Meest recente map eerst. Gebruikt voor de mappen-geschiedenis in de
+  /// instellingen (niet te verwarren met de "laatst gebruikte map"-instelling).
+  static Future<List<String>> getFolderHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_keyFolderHistory) ?? [];
+  }
+
+  static Future<void> addFolderHistory(String dir) async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = prefs.getStringList(_keyFolderHistory) ?? [];
+    list.remove(dir);
+    list.insert(0, dir);
+    if (list.length > 25) list.removeRange(25, list.length);
+    await prefs.setStringList(_keyFolderHistory, list);
+  }
+
+  static Future<void> removeFolderHistory(String dir) async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = prefs.getStringList(_keyFolderHistory) ?? [];
+    list.remove(dir);
+    await prefs.setStringList(_keyFolderHistory, list);
+  }
+
+  /// Alle ooit gedownloade bestanden (append-only, niet opgeschoond wanneer
+  /// een bestand verdwijnt) zodat de mappen-geschiedenis kan tonen welke
+  /// bestanden nog aanwezig, verwijderd of mogelijk verplaatst zijn.
+  static Future<List<DownloadedItem>> getDownloadHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_keyDownloadHistory);
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      final list = jsonDecode(raw) as List;
+      return list
+          .whereType<Map>()
+          .map((m) => DownloadedItem.fromJson(m.cast<String, dynamic>()))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Future<void> addDownloadHistoryItem(DownloadedItem item) async {
+    final prefs = await SharedPreferences.getInstance();
+    final items = await getDownloadHistory();
+    items.removeWhere((i) => i.path == item.path);
+    items.insert(0, item);
+    if (items.length > 1000) items.removeRange(1000, items.length);
+    await prefs.setString(
+      _keyDownloadHistory,
       jsonEncode(items.map((i) => i.toJson()).toList()),
     );
   }

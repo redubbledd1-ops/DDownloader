@@ -2,6 +2,25 @@ enum OutputFormat { mp4, mp3 }
 
 enum PlaylistMode { ask, playlist, single }
 
+enum AppLanguage {
+  nl,
+  en,
+  de,
+  fr,
+  es,
+  pt;
+
+  /// Naam van de taal in de taal zelf, voor gebruik in de taal-kiezer.
+  String get nativeName => switch (this) {
+    AppLanguage.nl => 'Nederlands',
+    AppLanguage.en => 'English',
+    AppLanguage.de => 'Deutsch',
+    AppLanguage.fr => 'Français',
+    AppLanguage.es => 'Español',
+    AppLanguage.pt => 'Português',
+  };
+}
+
 /// Voorkeursresolutie voor MP4. `ask` = in de app kwaliteit kiezen;
 /// een vaste hoogte = direct downloaden zonder dialoog (extentie + app).
 enum PreferredVideoQuality {

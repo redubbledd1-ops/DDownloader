@@ -22,6 +22,11 @@ ThemeData buildAppTheme(Brightness brightness) {
         secondaryContainer: isLight ? Colors.black12 : Colors.white12,
         onSecondaryContainer: fg,
         outline: isLight ? Colors.black45 : Colors.white54,
+        // Zonder deze override kiest ColorScheme.fromSeed (seed = zwart, dus
+        // zonder hue) een willekeurig getinte grijstint voor onSurfaceVariant
+        // — ListTile-subtitels en leading-icons werden daardoor nauwelijks
+        // leesbaar in lichte modus.
+        onSurfaceVariant: isLight ? Colors.black87 : Colors.white70,
       );
 
   return ThemeData(
@@ -54,6 +59,18 @@ ThemeData buildAppTheme(Brightness brightness) {
         (states) => states.contains(WidgetState.selected)
             ? fg.withValues(alpha: 0.5)
             : Colors.grey,
+      ),
+    ),
+    // ColorScheme.fromSeed(seedColor: Colors.black) geeft onSurfaceVariant
+    // een willekeurig getinte, lichte grijstint (zwart heeft geen hue) —
+    // zonder deze expliciete override zijn ListTile-subtitels en
+    // leading-icons nauwelijks leesbaar in lichte modus.
+    listTileTheme: ListTileThemeData(
+      iconColor: isLight ? Colors.black87 : Colors.white70,
+      textColor: fg,
+      subtitleTextStyle: TextStyle(
+        color: isLight ? Colors.black54 : Colors.white60,
+        fontSize: 12,
       ),
     ),
   );

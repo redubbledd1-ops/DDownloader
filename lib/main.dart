@@ -1,13 +1,15 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'l10n.dart';
 import 'models.dart';
 import 'settings.dart';
+import 'settings_page.dart';
 import 'theme.dart';
 import 'ytdlp_service.dart';
 
@@ -53,11 +55,13 @@ class DownoaderApp extends StatefulWidget {
 
 class _DownoaderAppState extends State<DownoaderApp> {
   ThemeMode _themeMode = ThemeMode.dark;
+  AppLanguage _language = AppLanguage.nl;
 
   @override
   void initState() {
     super.initState();
     _loadDarkMode();
+    _loadLanguage();
     if (Platform.isWindows) {
       Settings.setAppExePath(Platform.resolvedExecutable);
     }
@@ -73,6 +77,16 @@ class _DownoaderAppState extends State<DownoaderApp> {
     Settings.setDarkMode(dark);
   }
 
+  Future<void> _loadLanguage() async {
+    final language = await Settings.getLanguage();
+    setState(() => _language = language);
+  }
+
+  void _changeLanguage(AppLanguage language) {
+    setState(() => _language = language);
+    Settings.setLanguage(language);
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -83,6 +97,8 @@ class _DownoaderAppState extends State<DownoaderApp> {
       home: HomePage(
         isDarkMode: _themeMode == ThemeMode.dark,
         onToggleDarkMode: _toggleDarkMode,
+        language: _language,
+        onChangeLanguage: _changeLanguage,
         initialUrl: widget.initialUrl,
         initialFormat: widget.initialFormat,
         initialFormatId: widget.initialFormatId,
@@ -94,6 +110,8 @@ class _DownoaderAppState extends State<DownoaderApp> {
 class HomePage extends StatefulWidget {
   final bool isDarkMode;
   final ValueChanged<bool> onToggleDarkMode;
+  final AppLanguage language;
+  final ValueChanged<AppLanguage> onChangeLanguage;
   final String? initialUrl;
   final String? initialFormat;
   final String? initialFormatId;
@@ -102,6 +120,8 @@ class HomePage extends StatefulWidget {
     super.key,
     required this.isDarkMode,
     required this.onToggleDarkMode,
+    required this.language,
+    required this.onChangeLanguage,
     this.initialUrl,
     this.initialFormat,
     this.initialFormatId,
@@ -135,6 +155,8 @@ class _HomePageState extends State<HomePage> {
   Timer? _inboxTimer;
   String? _pendingFormatId;
 
+  L10n get t => L10n(widget.language);
+
   void _addLog(String message) {
     setState(() {
       _logs.add(message);
@@ -160,16 +182,7 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  String get _playlistModeTooltip {
-    switch (_playlistMode) {
-      case PlaylistMode.playlist:
-        return 'Playlist-modus: altijd hele playlist downloaden';
-      case PlaylistMode.single:
-        return 'Playlist-modus: altijd maar 1 bestand downloaden';
-      case PlaylistMode.ask:
-        return 'Playlist-modus: elke keer vragen';
-    }
-  }
+  String get _playlistModeTooltip => t.playlistModeTooltip(_playlistMode);
 
   void _cyclePlaylistMode() {
     const order = [
@@ -260,17 +273,17 @@ class _HomePageState extends State<HomePage> {
       final format = formatMatch.isNotEmpty
           ? formatMatch.first
           : OutputFormat.mp4;
+      final downloadedItem = DownloadedItem(
+        path: path,
+        isPlaylist: job['isPlaylist'] == true,
+        format: format,
+      );
       setState(() {
-        _downloaded.insert(
-          0,
-          DownloadedItem(
-            path: path,
-            isPlaylist: job['isPlaylist'] == true,
-            format: format,
-          ),
-        );
+        _downloaded.insert(0, downloadedItem);
       });
       await Settings.setDownloadedItems(_downloaded);
+      await Settings.addDownloadHistoryItem(downloadedItem);
+      await Settings.addFolderHistory(p.dirname(path));
       _addLog('Extentie: bestand gedownload ($path)');
       return;
     }
@@ -280,6 +293,7 @@ class _HomePageState extends State<HomePage> {
       final downloadDir = patch['downloadDir']?.toString();
       if (downloadDir != null && downloadDir.isNotEmpty) {
         await Settings.setDownloadDir(downloadDir);
+        await Settings.addFolderHistory(downloadDir);
         setState(() => _downloadDir = downloadDir);
       }
       final playlistMode = patch['playlistMode']?.toString();
@@ -364,6 +378,7 @@ class _HomePageState extends State<HomePage> {
   Future<void> _loadDir() async {
     final dir = await Settings.getDownloadDir();
     setState(() => _downloadDir = dir);
+    if (dir.isNotEmpty) await Settings.addFolderHistory(dir);
   }
 
   Future<void> _loadDownloaded() async {
@@ -375,17 +390,6 @@ class _HomePageState extends State<HomePage> {
     });
     if (existing.length != items.length) {
       await Settings.setDownloadedItems(existing);
-    }
-  }
-
-  Future<void> _pickDir() async {
-    final selected = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'Kies downloadmap',
-      initialDirectory: _downloadDir.isEmpty ? null : _downloadDir,
-    );
-    if (selected != null) {
-      await Settings.setDownloadDir(selected);
-      setState(() => _downloadDir = selected);
     }
   }
 
@@ -415,7 +419,7 @@ class _HomePageState extends State<HomePage> {
     } catch (e) {
       setState(() => _busy = false);
       _addLog('FOUT: $e');
-      _showError('Kon ffmpeg niet installeren: $e');
+      _showError(t.errInstallFfmpeg('$e'));
       return;
     }
 
@@ -456,7 +460,7 @@ class _HomePageState extends State<HomePage> {
         _status = '';
       });
       _addLog('FOUT: $e');
-      _showError('Kon URL niet controleren: $e');
+      _showError(t.errCheckUrl('$e'));
       return;
     }
 
@@ -481,7 +485,7 @@ class _HomePageState extends State<HomePage> {
             _status = '';
           });
           _addLog('FOUT: $e');
-          _showError('Kon kwaliteiten niet ophalen: $e');
+          _showError(t.errFetchQualities('$e'));
           return;
         }
         if (formats.isEmpty) {
@@ -489,7 +493,7 @@ class _HomePageState extends State<HomePage> {
             _busy = false;
             _status = '';
           });
-          _showError('Geen video-formats gevonden voor deze URL.');
+          _showError(t.noFormatsFound);
           return;
         }
         final chosen = await _askQuality(formats);
@@ -526,17 +530,17 @@ class _HomePageState extends State<HomePage> {
         } else if (event is FileDownloadedEvent) {
           if (!isPlaylist || !firstFileSeen) {
             firstFileSeen = true;
+            final downloadedItem = DownloadedItem(
+              path: event.path,
+              isPlaylist: isPlaylist,
+              format: _format,
+            );
             setState(() {
-              _downloaded.insert(
-                0,
-                DownloadedItem(
-                  path: event.path,
-                  isPlaylist: isPlaylist,
-                  format: _format,
-                ),
-              );
+              _downloaded.insert(0, downloadedItem);
             });
             Settings.setDownloadedItems(_downloaded);
+            Settings.addDownloadHistoryItem(downloadedItem);
+            Settings.addFolderHistory(p.dirname(event.path));
           }
         } else if (event is StatusEvent) {
           setState(() => _status = event.message);
@@ -545,7 +549,7 @@ class _HomePageState extends State<HomePage> {
         } else if (event is DownloadDoneEvent) {
           if (!event.success) {
             _addLog('FOUT: ${event.error}');
-            _showError('Download mislukt: ${event.error}');
+            _showError(t.downloadFailed('${event.error}'));
           } else {
             _addLog('Download voltooid.');
           }
@@ -553,7 +557,7 @@ class _HomePageState extends State<HomePage> {
       }
     } catch (e) {
       _addLog('FOUT: $e');
-      _showError('Download mislukt: $e');
+      _showError(t.downloadFailed('$e'));
     }
 
     setState(() {
@@ -567,18 +571,16 @@ class _HomePageState extends State<HomePage> {
     return showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Playlist gedetecteerd'),
-        content: const Text(
-          'Deze URL bevat een playlist. Wat wil je downloaden?',
-        ),
+        title: Text(t.playlistDetectedTitle),
+        content: Text(t.playlistDetectedContent),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Alleen deze video'),
+            child: Text(t.onlyThisVideo),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Hele playlist'),
+            child: Text(t.wholePlaylist),
           ),
         ],
       ),
@@ -589,7 +591,7 @@ class _HomePageState extends State<HomePage> {
     return showDialog<FormatInfo>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Kies kwaliteit'),
+        title: Text(t.chooseQualityTitle),
         content: SizedBox(
           width: 360,
           height: 400,
@@ -601,11 +603,7 @@ class _HomePageState extends State<HomePage> {
               final f = formats[i];
               return ListTile(
                 title: Text(f.label),
-                subtitle: Text(
-                  f.hasAudio
-                      ? 'video + audio'
-                      : 'video only (audio wordt toegevoegd)',
-                ),
+                subtitle: Text(f.hasAudio ? t.videoAndAudio : t.videoOnly),
                 onTap: () => Navigator.pop(ctx, f),
               );
             },
@@ -614,7 +612,7 @@ class _HomePageState extends State<HomePage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Annuleren'),
+            child: Text(t.cancel),
           ),
         ],
       ),
@@ -635,7 +633,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _saveLogs() async {
     if (_logs.isEmpty) {
-      _showError('Geen logs om op te slaan.');
+      _showError(t.noLogsToSave);
       return;
     }
     try {
@@ -647,10 +645,10 @@ class _HomePageState extends State<HomePage> {
           'downloader_log_${DateTime.now().millisecondsSinceEpoch}.txt';
       final file = File('$dir${Platform.pathSeparator}$fileName');
       await file.writeAsString(_logs.join('\n'));
-      _showInfo('Log opgeslagen: ${file.path}');
+      _showInfo(t.logSaved(file.path));
       await _service.openFolder(file.path);
     } catch (e) {
-      _showError('Kon log niet opslaan: $e');
+      _showError(t.errSaveLog('$e'));
     }
   }
 
@@ -658,7 +656,7 @@ class _HomePageState extends State<HomePage> {
     try {
       await _service.openFile(path);
     } catch (e) {
-      _showError('Kon bestand niet openen: $e');
+      _showError(t.errOpenFile('$e'));
     }
   }
 
@@ -666,7 +664,7 @@ class _HomePageState extends State<HomePage> {
     try {
       await _service.openFolder(path);
     } catch (e) {
-      _showError('Kon map niet openen: $e');
+      _showError(t.errOpenFolder('$e'));
     }
   }
 
@@ -677,7 +675,7 @@ class _HomePageState extends State<HomePage> {
         _downloadDir,
       ], mode: ProcessStartMode.detached);
     } catch (e) {
-      _showError('Kon map niet openen: $e');
+      _showError(t.errOpenFolder('$e'));
     }
   }
 
@@ -690,12 +688,12 @@ class _HomePageState extends State<HomePage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Annuleren'),
+            child: Text(t.cancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Verwijderen'),
+            child: Text(t.deleteConfirmButton),
           ),
         ],
       ),
@@ -705,15 +703,15 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _deleteItem(DownloadedItem item) async {
     final confirmed = await _confirmDialog(
-      'Bestand verwijderen?',
-      'Weet je zeker dat je "${item.fileName}" wilt verwijderen? Dit kan niet ongedaan worden gemaakt.',
+      t.deleteFileTitle,
+      t.deleteFileMessage(item.fileName),
     );
     if (!confirmed) return;
     try {
       final file = File(item.path);
       if (await file.exists()) await file.delete();
     } catch (e) {
-      _showError('Kon bestand niet verwijderen: $e');
+      _showError(t.errDeleteFile('$e'));
       return;
     }
     setState(() => _downloaded.remove(item));
@@ -724,8 +722,8 @@ class _HomePageState extends State<HomePage> {
   Future<void> _deleteAllItems() async {
     if (_downloaded.isEmpty) return;
     final confirmed = await _confirmDialog(
-      'Alle bestanden verwijderen?',
-      'Weet je zeker dat je alle ${_downloaded.length} gedownloade bestanden wilt verwijderen? Dit kan niet ongedaan worden gemaakt.',
+      t.deleteAllTitle,
+      t.deleteAllMessage(_downloaded.length),
     );
     if (!confirmed) return;
     final items = List<DownloadedItem>.from(_downloaded);
@@ -742,7 +740,7 @@ class _HomePageState extends State<HomePage> {
     await Settings.setDownloadedItems(_downloaded);
     _addLog('Alle bestanden verwijderd${failed > 0 ? ' ($failed mislukt)' : ''}.');
     if (failed > 0) {
-      _showError('$failed bestand(en) konden niet verwijderd worden.');
+      _showError(t.errDeleteSome(failed));
     }
   }
 
@@ -759,26 +757,39 @@ class _HomePageState extends State<HomePage> {
           ),
           IconButton(
             icon: Icon(_showLogs ? Icons.terminal : Icons.terminal_outlined),
-            tooltip: 'Logs',
+            tooltip: t.logsTooltip,
             onPressed: () => setState(() => _showLogs = !_showLogs),
           ),
           IconButton(
             icon: const Icon(Icons.download_for_offline_outlined),
-            tooltip: 'Log opslaan als tekstbestand',
+            tooltip: t.saveLogsTooltip,
             onPressed: _saveLogs,
           ),
           if (!Platform.isAndroid)
             IconButton(
               icon: const Icon(Icons.folder_open),
-              tooltip: 'Open downloadmap',
+              tooltip: t.openDownloadFolderTooltip,
               onPressed: _downloadDir.isEmpty ? null : _openDownloadFolder,
             ),
           IconButton(
-            icon: Icon(
-              widget.isDarkMode ? Icons.dark_mode : Icons.light_mode,
-            ),
-            tooltip: widget.isDarkMode ? 'Donkere modus' : 'Lichte modus',
-            onPressed: () => widget.onToggleDarkMode(!widget.isDarkMode),
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: t.settingsTooltip,
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => SettingsPage(
+                    isDarkMode: widget.isDarkMode,
+                    onToggleDarkMode: widget.onToggleDarkMode,
+                    language: widget.language,
+                    onChangeLanguage: widget.onChangeLanguage,
+                    downloadDir: _downloadDir,
+                    onChangeDownloadDir: (dir) =>
+                        setState(() => _downloadDir = dir),
+                  ),
+                ),
+              );
+            },
           ),
         ],
       ),
@@ -797,10 +808,10 @@ class _HomePageState extends State<HomePage> {
                   ),
                   padding: const EdgeInsets.all(8),
                   child: _logs.isEmpty
-                      ? const Center(
+                      ? Center(
                           child: Text(
-                            'Nog geen logs',
-                            style: TextStyle(color: Colors.grey),
+                            t.noLogsYet,
+                            style: const TextStyle(color: Colors.grey),
                           ),
                         )
                       : Scrollbar(
@@ -826,9 +837,9 @@ class _HomePageState extends State<HomePage> {
                   Expanded(
                     child: TextField(
                       controller: _urlController,
-                      decoration: const InputDecoration(
-                        labelText: 'Video of playlist URL',
-                        border: OutlineInputBorder(),
+                      decoration: InputDecoration(
+                        labelText: t.urlLabel,
+                        border: const OutlineInputBorder(),
                       ),
                       enabled: !_busy,
                       onSubmitted: (_) => _startDownload(),
@@ -844,14 +855,14 @@ class _HomePageState extends State<HomePage> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.download),
-                    label: const Text('Download'),
+                    label: Text(t.downloadButton),
                   ),
                 ],
               ),
               const SizedBox(height: 12),
               Row(
                 children: [
-                  const Text('Formaat: '),
+                  Text(t.formatLabel),
                   const SizedBox(width: 8),
                   SegmentedButton<OutputFormat>(
                     segments: const [
@@ -881,7 +892,7 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    const Text('MP4-kwaliteit: '),
+                    Text(t.mp4QualityLabel),
                     const SizedBox(width: 8),
                     Expanded(
                       child: DropdownButtonFormField<PreferredVideoQuality>(
@@ -899,7 +910,7 @@ class _HomePageState extends State<HomePage> {
                             .map(
                               (q) => DropdownMenuItem(
                                 value: q,
-                                child: Text(q.label),
+                                child: Text(t.qualityLabel(q)),
                               ),
                             )
                             .toList(),
@@ -917,8 +928,8 @@ class _HomePageState extends State<HomePage> {
                 const SizedBox(height: 4),
                 Text(
                   _videoQuality == PreferredVideoQuality.ask
-                      ? 'Bij downloaden eerst kwaliteit kiezen.'
-                      : 'Direct downloaden (app + extentie) gebruikt ${_videoQuality.label}.',
+                      ? t.qualityAskHint
+                      : t.qualityDirectHint(t.qualityLabel(_videoQuality)),
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
@@ -927,11 +938,11 @@ class _HomePageState extends State<HomePage> {
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   dense: true,
-                  title: const Text('Extentie-icoon downloadt meteen'),
+                  title: Text(t.extAutoDownloadTitle),
                   subtitle: Text(
                     _autoDownloadOnClick
-                        ? 'Klik op het extentie-icoon start direct een download (app-instellingen).'
-                        : 'Klik op het extentie-icoon opent eerst het venster.',
+                        ? t.extAutoDownloadOnSubtitle
+                        : t.extAutoDownloadOffSubtitle,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   value: _autoDownloadOnClick,
@@ -953,10 +964,10 @@ class _HomePageState extends State<HomePage> {
               const Divider(),
               Row(
                 children: [
-                  const Expanded(child: Text('Gedownloade bestanden')),
+                  Expanded(child: Text(t.downloadedFilesHeader)),
                   IconButton(
                     icon: const Icon(Icons.delete_sweep_outlined),
-                    tooltip: 'Alle bestanden verwijderen',
+                    tooltip: t.deleteAllTooltip,
                     onPressed: _downloaded.isEmpty ? null : _deleteAllItems,
                   ),
                 ],
@@ -964,27 +975,27 @@ class _HomePageState extends State<HomePage> {
               const SizedBox(height: 8),
               TextField(
                 controller: _searchController,
-                decoration: const InputDecoration(
-                  hintText: 'Zoeken in bestanden...',
-                  prefixIcon: Icon(Icons.search),
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  hintText: t.searchHint,
+                  prefixIcon: const Icon(Icons.search),
+                  border: const OutlineInputBorder(),
                   isDense: true,
                 ),
                 onChanged: (v) => setState(() => _searchQuery = v),
               ),
               const SizedBox(height: 8),
               SegmentedButton<FileFilter>(
-                segments: const [
-                  ButtonSegment(value: FileFilter.all, label: Text('Alles')),
+                segments: [
+                  ButtonSegment(value: FileFilter.all, label: Text(t.filterAll)),
                   ButtonSegment(
                     value: FileFilter.video,
-                    label: Text("Video's"),
-                    icon: Icon(Icons.movie),
+                    label: Text(t.filterVideo),
+                    icon: const Icon(Icons.movie),
                   ),
                   ButtonSegment(
                     value: FileFilter.audio,
-                    label: Text('Audio'),
-                    icon: Icon(Icons.audiotrack),
+                    label: Text(t.filterAudio),
+                    icon: const Icon(Icons.audiotrack),
                   ),
                 ],
                 selected: {_fileFilter},
@@ -997,18 +1008,18 @@ class _HomePageState extends State<HomePage> {
                   builder: (context) {
                     final items = _filteredDownloaded;
                     if (_downloaded.isEmpty) {
-                      return const Center(
+                      return Center(
                         child: Text(
-                          'Nog niets gedownload',
-                          style: TextStyle(color: Colors.grey),
+                          t.nothingDownloadedYet,
+                          style: const TextStyle(color: Colors.grey),
                         ),
                       );
                     }
                     if (items.isEmpty) {
-                      return const Center(
+                      return Center(
                         child: Text(
-                          'Geen resultaten',
-                          style: TextStyle(color: Colors.grey),
+                          t.noResults,
+                          style: const TextStyle(color: Colors.grey),
                         ),
                       );
                     }
@@ -1026,21 +1037,19 @@ class _HomePageState extends State<HomePage> {
                           ),
                           title: Text(item.fileName),
                           subtitle: item.isPlaylist
-                              ? const Text(
-                                  'Onderdeel van een playlist-download',
-                                )
+                              ? Text(t.partOfPlaylist)
                               : null,
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               IconButton(
                                 icon: const Icon(Icons.folder_open, size: 18),
-                                tooltip: 'Open map',
+                                tooltip: t.openFolderTooltip,
                                 onPressed: () => _openItemFolder(item.path),
                               ),
                               IconButton(
                                 icon: const Icon(Icons.delete_outline, size: 18),
-                                tooltip: 'Verwijderen',
+                                tooltip: t.deleteTooltip,
                                 onPressed: () => _deleteItem(item),
                               ),
                             ],
@@ -1051,25 +1060,6 @@ class _HomePageState extends State<HomePage> {
                     );
                   },
                 ),
-              ),
-              const Divider(),
-              Row(
-                children: [
-                  const Icon(Icons.folder_outlined),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _downloadDir.isEmpty
-                          ? 'Downloadmap laden...'
-                          : _downloadDir,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: _busy ? null : _pickDir,
-                    child: const Text('Wijzig...'),
-                  ),
-                ],
               ),
             ],
           ),

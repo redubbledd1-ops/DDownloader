@@ -15,6 +15,8 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<AppLanguage> onChangeLanguage;
   final String downloadDir;
   final ValueChanged<String> onChangeDownloadDir;
+  final bool autoDownloadOnClick;
+  final ValueChanged<bool> onChangeAutoDownloadOnClick;
 
   const SettingsPage({
     super.key,
@@ -24,6 +26,8 @@ class SettingsPage extends StatefulWidget {
     required this.onChangeLanguage,
     required this.downloadDir,
     required this.onChangeDownloadDir,
+    required this.autoDownloadOnClick,
+    required this.onChangeAutoDownloadOnClick,
   });
 
   @override
@@ -167,6 +171,20 @@ class _SettingsPageState extends State<SettingsPage> {
                         _downloadDir,
                       ], mode: ProcessStartMode.detached),
               ),
+            if (Platform.isWindows) ...[
+              const Divider(),
+              _SectionHeader(title: t.extensionSection),
+              SwitchListTile(
+                title: Text(t.extAutoDownloadTitle),
+                subtitle: Text(
+                  widget.autoDownloadOnClick
+                      ? t.extAutoDownloadOnSubtitle
+                      : t.extAutoDownloadOffSubtitle,
+                ),
+                value: widget.autoDownloadOnClick,
+                onChanged: widget.onChangeAutoDownloadOnClick,
+              ),
+            ],
           ],
         ),
       ),
@@ -180,12 +198,16 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLight = Theme.of(context).brightness == Brightness.light;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
       child: Text(
         title,
-        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-          color: Theme.of(context).colorScheme.outline,
+        style: TextStyle(
+          color: isLight ? Colors.black87 : Colors.white70,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.5,
         ),
       ),
     );

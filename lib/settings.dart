@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -165,12 +166,23 @@ class Settings {
     );
   }
 
+  /// Zonder opgeslagen keuze wordt de systeemtaal van het OS gebruikt
+  /// (als die wordt ondersteund), niet een vast standaard-Nederlands.
   static Future<AppLanguage> getLanguage() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_keyLanguage);
+    if (raw == null) return _systemLanguage();
     return AppLanguage.values.firstWhere(
       (l) => l.name == raw,
-      orElse: () => AppLanguage.nl,
+      orElse: () => _systemLanguage(),
+    );
+  }
+
+  static AppLanguage _systemLanguage() {
+    final code = PlatformDispatcher.instance.locale.languageCode;
+    return AppLanguage.values.firstWhere(
+      (l) => l.name == code,
+      orElse: () => AppLanguage.en,
     );
   }
 

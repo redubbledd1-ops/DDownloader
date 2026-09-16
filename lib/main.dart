@@ -786,6 +786,11 @@ class _HomePageState extends State<HomePage> {
                     downloadDir: _downloadDir,
                     onChangeDownloadDir: (dir) =>
                         setState(() => _downloadDir = dir),
+                    autoDownloadOnClick: _autoDownloadOnClick,
+                    onChangeAutoDownloadOnClick: (value) {
+                      setState(() => _autoDownloadOnClick = value);
+                      Settings.setAutoDownloadOnClick(value);
+                    },
                   ),
                 ),
               );
@@ -931,25 +936,6 @@ class _HomePageState extends State<HomePage> {
                       ? t.qualityAskHint
                       : t.qualityDirectHint(t.qualityLabel(_videoQuality)),
                   style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-              if (Platform.isWindows) ...[
-                const SizedBox(height: 8),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: Text(t.extAutoDownloadTitle),
-                  subtitle: Text(
-                    _autoDownloadOnClick
-                        ? t.extAutoDownloadOnSubtitle
-                        : t.extAutoDownloadOffSubtitle,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  value: _autoDownloadOnClick,
-                  onChanged: (value) {
-                    setState(() => _autoDownloadOnClick = value);
-                    Settings.setAutoDownloadOnClick(value);
-                  },
                 ),
               ],
               const SizedBox(height: 16),

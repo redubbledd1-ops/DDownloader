@@ -581,6 +581,15 @@ class L10n {
     AppLanguage.pt => 'Escolher idioma',
   };
 
+  String get extensionSection => switch (language) {
+    AppLanguage.nl => 'Browserextentie',
+    AppLanguage.en => 'Browser extension',
+    AppLanguage.de => 'Browsererweiterung',
+    AppLanguage.fr => 'Extension du navigateur',
+    AppLanguage.es => 'Extensión del navegador',
+    AppLanguage.pt => 'Extensão do navegador',
+  };
+
   String get folderSection => switch (language) {
     AppLanguage.nl => 'Downloadmap',
     AppLanguage.en => 'Download folder',

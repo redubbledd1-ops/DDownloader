@@ -53,7 +53,9 @@ ThemeData buildAppTheme(Brightness brightness) {
       thumbColor: WidgetStateProperty.resolveWith(
         (states) => states.contains(WidgetState.selected)
             ? fg
-            : (isLight ? Colors.white : Colors.black),
+            // Wit bolletje op lichte achtergrond (of zwart op donkere) was
+            // vrijwel onzichtbaar — de uit-stand moet juist contrasteren.
+            : (isLight ? Colors.grey[700] : Colors.grey[300]),
       ),
       trackColor: WidgetStateProperty.resolveWith(
         (states) => states.contains(WidgetState.selected)
@@ -72,6 +74,12 @@ ThemeData buildAppTheme(Brightness brightness) {
         color: isLight ? Colors.black54 : Colors.white60,
         fontSize: 12,
       ),
+    ),
+    // Zelfde reden als onSurfaceVariant hierboven: de auto-gegenereerde
+    // outlineVariant (gebruikt door Divider) is met een zwarte seed
+    // nauwelijks te onderscheiden van de achtergrond.
+    dividerTheme: DividerThemeData(
+      color: isLight ? Colors.black26 : Colors.white38,
     ),
   );
 }

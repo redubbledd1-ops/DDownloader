@@ -13,6 +13,7 @@ class Settings {
   static const _keyDarkMode = 'dark_mode';
   static const _keyDownloaded = 'downloaded_items';
   static const _keyPlaylistMode = 'playlist_mode';
+  static const _keyCookiesBrowser = 'cookies_browser';
   static const _keyDefaultFormat = 'default_format';
   static const _keyPreferredVideoQuality = 'preferred_video_quality';
   static const _keyAppExe = 'app_exe';
@@ -256,6 +257,20 @@ class Settings {
   static Future<void> setPlaylistMode(PlaylistMode mode) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyPlaylistMode, mode.name);
+  }
+
+  static Future<CookiesBrowser> getCookiesBrowser() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_keyCookiesBrowser);
+    return CookiesBrowser.values.firstWhere(
+      (b) => b.name == raw,
+      orElse: () => CookiesBrowser.none,
+    );
+  }
+
+  static Future<void> setCookiesBrowser(CookiesBrowser browser) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyCookiesBrowser, browser.name);
   }
 
   /// Inbox van de browser-extentie: een wachtrij van pending opdrachten

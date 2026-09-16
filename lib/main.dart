@@ -139,6 +139,7 @@ class _HomePageState extends State<HomePage> {
   PreferredVideoQuality _videoQuality = PreferredVideoQuality.p1080;
   bool _autoDownloadOnClick = false;
   PlaylistMode _playlistMode = PlaylistMode.ask;
+  CookiesBrowser _cookiesBrowser = CookiesBrowser.none;
   String _downloadDir = '';
   bool _busy = false;
   double _progress = 0;
@@ -226,6 +227,7 @@ class _HomePageState extends State<HomePage> {
       _loadFormat(),
       _loadVideoQuality(),
       _loadAutoDownloadOnClick(),
+      _loadCookiesBrowser(),
     ]);
     if (widget.initialFormat != null) {
       final f = OutputFormat.values.where((e) => e.name == widget.initialFormat);
@@ -362,6 +364,11 @@ class _HomePageState extends State<HomePage> {
   Future<void> _loadAutoDownloadOnClick() async {
     final value = await Settings.getAutoDownloadOnClick();
     setState(() => _autoDownloadOnClick = value);
+  }
+
+  Future<void> _loadCookiesBrowser() async {
+    final value = await Settings.getCookiesBrowser();
+    setState(() => _cookiesBrowser = value);
   }
 
   Future<void> _loadPlaylistMode() async {
@@ -782,6 +789,11 @@ class _HomePageState extends State<HomePage> {
                     onChangeAutoDownloadOnClick: (value) {
                       setState(() => _autoDownloadOnClick = value);
                       Settings.setAutoDownloadOnClick(value);
+                    },
+                    cookiesBrowser: _cookiesBrowser,
+                    onChangeCookiesBrowser: (value) {
+                      setState(() => _cookiesBrowser = value);
+                      Settings.setCookiesBrowser(value);
                     },
                     showLogs: _showLogs,
                     onToggleShowLogs: (value) =>

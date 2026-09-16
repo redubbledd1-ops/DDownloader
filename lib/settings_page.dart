@@ -17,6 +17,8 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<String> onChangeDownloadDir;
   final bool autoDownloadOnClick;
   final ValueChanged<bool> onChangeAutoDownloadOnClick;
+  final CookiesBrowser cookiesBrowser;
+  final ValueChanged<CookiesBrowser> onChangeCookiesBrowser;
   final bool showLogs;
   final ValueChanged<bool> onToggleShowLogs;
   final VoidCallback onSaveLogs;
@@ -33,6 +35,8 @@ class SettingsPage extends StatefulWidget {
     required this.onChangeDownloadDir,
     required this.autoDownloadOnClick,
     required this.onChangeAutoDownloadOnClick,
+    required this.cookiesBrowser,
+    required this.onChangeCookiesBrowser,
     required this.showLogs,
     required this.onToggleShowLogs,
     required this.onSaveLogs,
@@ -102,6 +106,42 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
     if (chosen != null) widget.onChangeLanguage(chosen);
+  }
+
+  Future<void> _pickCookiesBrowser() async {
+    final chosen = await showDialog<CookiesBrowser>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(t.cookiesBrowserLabel),
+        content: SizedBox(
+          width: 320,
+          child: RadioGroup<CookiesBrowser>(
+            groupValue: widget.cookiesBrowser,
+            onChanged: (browser) {
+              if (browser != null) Navigator.pop(ctx, browser);
+            },
+            child: ListView(
+              shrinkWrap: true,
+              children: CookiesBrowser.values
+                  .map(
+                    (browser) => RadioListTile<CookiesBrowser>(
+                      value: browser,
+                      title: Text(t.cookiesBrowserName(browser)),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(t.cancel),
+          ),
+        ],
+      ),
+    );
+    if (chosen != null) widget.onChangeCookiesBrowser(chosen);
   }
 
   @override
@@ -186,6 +226,18 @@ class _SettingsPageState extends State<SettingsPage> {
                         _downloadDir,
                       ], mode: ProcessStartMode.detached),
               ),
+            if (!Platform.isAndroid) ...[
+              _SectionHeader(title: t.cookiesSection),
+              ListTile(
+                leading: const Icon(Icons.cookie_outlined),
+                title: Text(t.cookiesBrowserLabel),
+                subtitle: Text(
+                  '${t.cookiesBrowserName(widget.cookiesBrowser)}\n${t.cookiesBrowserSubtitle}',
+                ),
+                isThreeLine: true,
+                onTap: _pickCookiesBrowser,
+              ),
+            ],
             if (Platform.isWindows) ...[
               _SectionHeader(title: t.extensionSection),
               SwitchListTile(

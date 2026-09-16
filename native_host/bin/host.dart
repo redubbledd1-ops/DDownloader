@@ -50,6 +50,25 @@ const List<String> concurrencyArgs = ['--concurrent-fragments', '1'];
 const String filepathMarker = 'FILEPATH::';
 final RegExp percentRegex = RegExp(r'\[download\]\s+([\d.]+)%');
 
+// YouTube's tijdelijke bot-check/rate-limit ("The page needs to be
+// reloaded", HTTP 429/403) lost meestal vanzelf op na een korte pauze —
+// geen echte downloadlimiet van yt-dlp of deze app, maar aan YouTube's
+// kant. Zelfde aanpak als de Flutter-app (zie lib/ytdlp_service.dart).
+const List<Duration> transientRetryDelays = [
+  Duration(seconds: 5),
+  Duration(seconds: 15),
+];
+
+bool isTransientYtDlpError(String output) {
+  final s = output.toLowerCase();
+  return s.contains('the page needs to be reloaded') ||
+      s.contains('http error 429') ||
+      s.contains('http error 403') ||
+      s.contains('unable to download webpage') ||
+      s.contains('connection reset') ||
+      s.contains('temporary failure in name resolution');
+}
+
 /// Haalt het pad uit een FILEPATH::-regel en knipt mojibake (U+FFFD) weg.
 String? extractFilepath(String line) {
   final idx = line.indexOf(filepathMarker);
@@ -71,6 +90,20 @@ const String prefsKeyDefaultFormat = 'flutter.default_format';
 const String prefsKeyAppExe = 'flutter.app_exe';
 const String prefsKeyAutoDownload = 'flutter.auto_download_on_click';
 const String prefsKeyPreferredVideoQuality = 'flutter.preferred_video_quality';
+const String prefsKeyCookiesBrowser = 'flutter.cookies_browser';
+
+const List<String> cookiesBrowserValues = [
+  'none',
+  'chrome',
+  'edge',
+  'firefox',
+  'brave',
+];
+
+List<String> cookiesArgsFor(String? browser) {
+  if (browser == null || browser == 'none' || browser.isEmpty) return [];
+  return ['--cookies-from-browser', browser];
+}
 
 // Zelfde resoluties als PreferredVideoQuality in lib/models.dart, zodat een
 // direct-download vanuit de extentie dezelfde kwaliteitsvoorkeur respecteert
@@ -397,6 +430,7 @@ Future<Map<String, dynamic>> readSettings() async {
     'autoDownloadOnClick': raw[prefsKeyAutoDownload] == true,
     'preferredVideoQuality':
         raw[prefsKeyPreferredVideoQuality]?.toString() ?? 'p1080',
+    'cookiesBrowser': raw[prefsKeyCookiesBrowser]?.toString() ?? 'none',
   };
 }
 
@@ -430,6 +464,12 @@ Future<Map<String, dynamic>> writeSettings(Map<String, dynamic> patch) async {
     final v = patch['preferredVideoQuality']?.toString() ?? '';
     if (v == 'ask' || v == 'max' || qualityMaxHeight.containsKey(v)) {
       raw[prefsKeyPreferredVideoQuality] = v;
+    }
+  }
+  if (patch.containsKey('cookiesBrowser')) {
+    final v = patch['cookiesBrowser']?.toString() ?? 'none';
+    if (cookiesBrowserValues.contains(v)) {
+      raw[prefsKeyCookiesBrowser] = v;
     }
   }
   savePrefsRaw(raw);
@@ -571,18 +611,38 @@ Future<String> resolveYtDlp({void Function(String)? onLog}) async {
 Future<List<Map<String, dynamic>>> fetchFormats(String url) async {
   final exe = await resolveYtDlp();
   final jsArgs = await resolveJsRuntimeArgs();
-  final result = await Process.run(
-    exe,
-    ['--no-playlist', '-J', ...playerClientArgs, ...jsArgs, url],
-    environment: _ytDlpEnvironment,
-    // yt-dlp draait als Python-exe; op Windows kan de systeem-codepage
-    // niet-UTF8 bytes in titels/output geven. allowMalformed voorkomt een
-    // FormatException-crash als PYTHONUTF8 (hierboven) het toch mist.
-    stdoutEncoding: const Utf8Codec(allowMalformed: true),
-    stderrEncoding: const Utf8Codec(allowMalformed: true),
-  );
-  if (result.exitCode != 0) {
-    throw StateError(shortError(result.stderr.toString()));
+  final settings = await readSettings();
+  final cookiesArgs = cookiesArgsFor(settings['cookiesBrowser'] as String?);
+  final args = [
+    '--no-playlist',
+    '-J',
+    ...playerClientArgs,
+    ...jsArgs,
+    ...cookiesArgs,
+    url,
+  ];
+
+  ProcessResult result;
+  var attempt = 0;
+  while (true) {
+    result = await Process.run(
+      exe,
+      args,
+      environment: _ytDlpEnvironment,
+      // yt-dlp draait als Python-exe; op Windows kan de systeem-codepage
+      // niet-UTF8 bytes in titels/output geven. allowMalformed voorkomt een
+      // FormatException-crash als PYTHONUTF8 (hierboven) het toch mist.
+      stdoutEncoding: const Utf8Codec(allowMalformed: true),
+      stderrEncoding: const Utf8Codec(allowMalformed: true),
+    );
+    if (result.exitCode == 0) break;
+    final stderr = result.stderr.toString();
+    if (attempt >= transientRetryDelays.length ||
+        !isTransientYtDlpError(stderr)) {
+      throw StateError(shortError(stderr));
+    }
+    await Future.delayed(transientRetryDelays[attempt]);
+    attempt++;
   }
   final data = jsonDecode(result.stdout.toString()) as Map<String, dynamic>;
   final formats = (data['formats'] as List?) ?? [];
@@ -719,6 +779,8 @@ Future<void> runDownload({
 
   await Directory(outputDir).create(recursive: true);
   final jsArgs = await resolveJsRuntimeArgs();
+  final settings = await readSettings();
+  final cookiesArgs = cookiesArgsFor(settings['cookiesBrowser'] as String?);
   // Relatief -o + -P home/temp: absolute -o negeert --paths volledig,
   // waardoor .part weer op Desktop/OneDrive belandt (WinError 32).
   final tempRoot = Directory(
@@ -749,6 +811,7 @@ Future<void> runDownload({
     '--no-continue',
     ...playerClientArgs,
     ...jsArgs,
+    ...cookiesArgs,
     ...concurrencyArgs,
     if (ffmpegDir != null) ...['--ffmpeg-location', ffmpegDir],
   ];
@@ -762,59 +825,78 @@ Future<void> runDownload({
     args.addAll(['-f', id, '--merge-output-format', 'mp4']);
   }
 
-  final process = await Process.start(
-    exe,
-    args,
-    environment: _ytDlpEnvironment,
-  );
-  String? lastPath;
-  final stderrBuf = StringBuffer();
-
   const lenientUtf8 = Utf8Decoder(allowMalformed: true);
-  final stderrSub = process.stderr
-      .transform(lenientUtf8)
-      .transform(const LineSplitter())
-      .listen((line) => stderrBuf.writeln(line));
+  String? lastPath;
 
-  await for (final line
-      in process.stdout
-          .transform(lenientUtf8)
-          .transform(const LineSplitter())) {
-    if (line.contains(filepathMarker)) {
-      lastPath = extractFilepath(line);
+  // Bij een tijdelijke YouTube-blokkade (bot-check/rate-limit, lost
+  // meestal vanzelf op) het hele proces na een korte pauze opnieuw
+  // starten i.p.v. de gebruiker meteen een foutmelding te tonen.
+  for (var attempt = 0; ; attempt++) {
+    final process = await Process.start(
+      exe,
+      args,
+      environment: _ytDlpEnvironment,
+    );
+    final stderrBuf = StringBuffer();
+    final stderrSub = process.stderr
+        .transform(lenientUtf8)
+        .transform(const LineSplitter())
+        .listen((line) => stderrBuf.writeln(line));
+
+    await for (final line
+        in process.stdout
+            .transform(lenientUtf8)
+            .transform(const LineSplitter())) {
+      if (line.contains(filepathMarker)) {
+        lastPath = extractFilepath(line);
+        await writeMessage({
+          'ok': true,
+          'line': line,
+          if (lastPath != null && lastPath.isNotEmpty) 'path': lastPath,
+        });
+        continue;
+      }
+      final match = percentRegex.firstMatch(line);
+      if (match != null) {
+        final pct = double.tryParse(match.group(1)!);
+        await writeMessage({
+          'ok': true,
+          if (pct != null) 'progress': pct,
+          'line': line,
+        });
+        continue;
+      }
+      if (line.isNotEmpty) {
+        await writeMessage({'ok': true, 'line': line});
+      }
+    }
+
+    final code = await process.exitCode;
+    await stderrSub.cancel();
+
+    if (code == 0) break;
+
+    final stderrText = stderrBuf.toString();
+    if (attempt < transientRetryDelays.length &&
+        isTransientYtDlpError(stderrText)) {
+      final delay = transientRetryDelays[attempt];
       await writeMessage({
         'ok': true,
-        'line': line,
-        if (lastPath != null && lastPath.isNotEmpty) 'path': lastPath,
+        'line':
+            'Tijdelijke YouTube-blokkade, opnieuw proberen over ${delay.inSeconds}s...',
       });
+      await Future.delayed(delay);
       continue;
     }
-    final match = percentRegex.firstMatch(line);
-    if (match != null) {
-      final pct = double.tryParse(match.group(1)!);
-      await writeMessage({
-        'ok': true,
-        if (pct != null) 'progress': pct,
-        'line': line,
-      });
-      continue;
-    }
-    if (line.isNotEmpty) {
-      await writeMessage({'ok': true, 'line': line});
-    }
-  }
 
-  final code = await process.exitCode;
-  await stderrSub.cancel();
-
-  if (code != 0) {
     await writeMessage({
       'ok': false,
       'done': true,
-      'error': shortError(stderrBuf.toString()),
+      'error': shortError(stderrText),
     });
     return;
   }
+
   final finalPath = lastPath;
   if (finalPath != null && finalPath.isNotEmpty) {
     recordDownloadedItem(

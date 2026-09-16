@@ -41,6 +41,54 @@ class L10n {
     },
   };
 
+  String get cookiesSection => switch (language) {
+    AppLanguage.nl => 'Cookies',
+    AppLanguage.en => 'Cookies',
+    AppLanguage.de => 'Cookies',
+    AppLanguage.fr => 'Cookies',
+    AppLanguage.es => 'Cookies',
+    AppLanguage.pt => 'Cookies',
+  };
+
+  String get cookiesBrowserLabel => switch (language) {
+    AppLanguage.nl => 'Cookies uit browser',
+    AppLanguage.en => 'Cookies from browser',
+    AppLanguage.de => 'Cookies aus Browser',
+    AppLanguage.fr => 'Cookies depuis le navigateur',
+    AppLanguage.es => 'Cookies del navegador',
+    AppLanguage.pt => 'Cookies do navegador',
+  };
+
+  String get cookiesBrowserSubtitle => switch (language) {
+    AppLanguage.nl =>
+      'Gebruik een ingelogde browsersessie. Voorkomt dat YouTube downloads tijdelijk blokkeert.',
+    AppLanguage.en =>
+      'Use a logged-in browser session. Prevents YouTube from temporarily blocking downloads.',
+    AppLanguage.de =>
+      'Eine angemeldete Browsersitzung verwenden. Verhindert, dass YouTube Downloads vorübergehend blockiert.',
+    AppLanguage.fr =>
+      "Utiliser une session de navigateur connectée. Empêche YouTube de bloquer temporairement les téléchargements.",
+    AppLanguage.es =>
+      'Usar una sesión de navegador con sesión iniciada. Evita que YouTube bloquee temporalmente las descargas.',
+    AppLanguage.pt =>
+      'Usar uma sessão de navegador autenticada. Evita que o YouTube bloqueie downloads temporariamente.',
+  };
+
+  String cookiesBrowserName(CookiesBrowser browser) => switch (browser) {
+    CookiesBrowser.none => switch (language) {
+      AppLanguage.nl => 'Geen',
+      AppLanguage.en => 'None',
+      AppLanguage.de => 'Keine',
+      AppLanguage.fr => 'Aucun',
+      AppLanguage.es => 'Ninguno',
+      AppLanguage.pt => 'Nenhum',
+    },
+    CookiesBrowser.chrome => 'Chrome',
+    CookiesBrowser.edge => 'Edge',
+    CookiesBrowser.firefox => 'Firefox',
+    CookiesBrowser.brave => 'Brave',
+  };
+
   String get logsTooltip => switch (language) {
     AppLanguage.nl => 'Logs',
     AppLanguage.en => 'Logs',

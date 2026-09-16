@@ -2,6 +2,20 @@ enum OutputFormat { mp4, mp3 }
 
 enum PlaylistMode { ask, playlist, single }
 
+/// Browser om cookies uit te lezen voor yt-dlp (`--cookies-from-browser`).
+/// Een ingelogde sessie laat YouTube's tijdelijke bot-check/rate-limit veel
+/// minder snel toeslaan dan een anonieme aanvraag.
+enum CookiesBrowser {
+  none,
+  chrome,
+  edge,
+  firefox,
+  brave;
+
+  /// yt-dlp's eigen naam voor de browser, of null als niets doorgegeven moet worden.
+  String? get ytDlpValue => this == CookiesBrowser.none ? null : name;
+}
+
 enum AppLanguage {
   nl,
   en,

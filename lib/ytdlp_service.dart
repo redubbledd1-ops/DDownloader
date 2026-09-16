@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'models.dart';
+import 'settings.dart';
 
 // Oudere installaties waarbij de gebruiker yt-dlp zelf naar deze plek had
 // gezet blijven werken. Release-builds bundelen yt-dlp/ffmpeg/deno in
@@ -73,6 +74,32 @@ const List<String> _playerClientArgs = [
 // Op Windows: 1 fragment tegelijk. Concurrent fragments houden .part-handles
 // langer open en botsen met Defender/OneDrive (WinError 32 bij rename).
 const List<String> _concurrencyArgs = ['--concurrent-fragments', '1'];
+
+// YouTube's tijdelijke bot-check/rate-limit ("The page needs to be
+// reloaded", HTTP 429/403) lost meestal vanzelf op na een korte pauze —
+// dit is geen echte downloadlimiet van yt-dlp of deze app, maar aan
+// YouTube's kant. Op zulke fouten proberen we het na een korte pauze
+// gewoon opnieuw i.p.v. de gebruiker meteen een foutmelding te tonen.
+const List<Duration> _transientRetryDelays = [
+  Duration(seconds: 5),
+  Duration(seconds: 15),
+];
+
+bool _isTransientYtDlpError(String output) {
+  final s = output.toLowerCase();
+  return s.contains('the page needs to be reloaded') ||
+      s.contains('http error 429') ||
+      s.contains('http error 403') ||
+      s.contains('unable to download webpage') ||
+      s.contains('connection reset') ||
+      s.contains('temporary failure in name resolution');
+}
+
+Future<List<String>> _cookiesArgs() async {
+  final browser = await Settings.getCookiesBrowser();
+  final value = browser.ytDlpValue;
+  return value == null ? [] : ['--cookies-from-browser', value];
+}
 
 class YtDlpException implements Exception {
   final String message;
@@ -374,6 +401,7 @@ class YtDlpService {
 
   Future<PlaylistProbeResult> probePlaylist(String url) async {
     final jsArgs = await _ensureJsRuntimeArgs();
+    final cookiesArgs = await _cookiesArgs();
     final Map<String, dynamic> data = Platform.isAndroid
         ? jsonDecode(await _androidQuery(url, 'probe'))
         : await _desktopQuery(url, [
@@ -381,6 +409,7 @@ class YtDlpService {
             '-J',
             ..._playerClientArgs,
             ...jsArgs,
+            ...cookiesArgs,
             url,
           ]);
     final entries = data['entries'];
@@ -395,6 +424,7 @@ class YtDlpService {
 
   Future<List<FormatInfo>> fetchFormats(String url) async {
     final jsArgs = await _ensureJsRuntimeArgs();
+    final cookiesArgs = await _cookiesArgs();
     final Map<String, dynamic> data = Platform.isAndroid
         ? jsonDecode(await _androidQuery(url, 'formats'))
         : await _desktopQuery(url, [
@@ -402,6 +432,7 @@ class YtDlpService {
             '-J',
             ..._playerClientArgs,
             ...jsArgs,
+            ...cookiesArgs,
             url,
           ]);
     return parseFormats(data);
@@ -448,20 +479,27 @@ class YtDlpService {
     List<String> args,
   ) async {
     final ytDlp = await ensureYtDlp();
-    final result = await Process.run(
-      ytDlp,
-      args,
-      environment: _ytDlpEnvironment,
-      // yt-dlp draait als Python-exe; op Windows kan de systeem-codepage
-      // niet-UTF8 bytes in titels/output geven. allowMalformed voorkomt een
-      // FormatException-crash als PYTHONUTF8 (hieronder) het toch mist.
-      stdoutEncoding: const Utf8Codec(allowMalformed: true),
-      stderrEncoding: const Utf8Codec(allowMalformed: true),
-    );
-    if (result.exitCode != 0) {
-      throw YtDlpException(_shortError(result.stderr.toString()));
+    for (var attempt = 0; ; attempt++) {
+      final result = await Process.run(
+        ytDlp,
+        args,
+        environment: _ytDlpEnvironment,
+        // yt-dlp draait als Python-exe; op Windows kan de systeem-codepage
+        // niet-UTF8 bytes in titels/output geven. allowMalformed voorkomt een
+        // FormatException-crash als PYTHONUTF8 (hieronder) het toch mist.
+        stdoutEncoding: const Utf8Codec(allowMalformed: true),
+        stderrEncoding: const Utf8Codec(allowMalformed: true),
+      );
+      if (result.exitCode == 0) {
+        return jsonDecode(result.stdout.toString());
+      }
+      final stderr = result.stderr.toString();
+      if (attempt >= _transientRetryDelays.length ||
+          !_isTransientYtDlpError(stderr)) {
+        throw YtDlpException(_shortError(stderr));
+      }
+      await Future.delayed(_transientRetryDelays[attempt]);
     }
-    return jsonDecode(result.stdout.toString());
   }
 
   Stream<DownloadEvent> download({
@@ -557,6 +595,7 @@ class YtDlpService {
   }) async* {
     final ytDlp = await ensureYtDlp();
     final jsArgs = await _ensureJsRuntimeArgs();
+    final cookiesArgs = await _cookiesArgs();
     // Relatief -o + -P home/temp: absolute -o negeert --paths volledig,
     // waardoor .part weer op Desktop/OneDrive belandt (WinError 32).
     final tempRoot = Directory(
@@ -586,6 +625,7 @@ class YtDlpService {
       '--no-continue',
       ..._playerClientArgs,
       ...jsArgs,
+      ...cookiesArgs,
       ..._concurrencyArgs,
       if (ffmpegDir != null) ...['--ffmpeg-location', ffmpegDir],
     ];
@@ -597,55 +637,77 @@ class YtDlpService {
       args.addAll(['-f', id, '--merge-output-format', 'mp4']);
     }
 
-    final process = await Process.start(
-      ytDlp,
-      args,
-      environment: _ytDlpEnvironment,
-    );
-
     const lenientUtf8 = Utf8Decoder(allowMalformed: true);
-    final stdoutLines = process.stdout
-        .transform(lenientUtf8)
-        .transform(const LineSplitter());
-    final stderrBuffer = StringBuffer();
-    final stderrSub = process.stderr
-        .transform(lenientUtf8)
-        .transform(const LineSplitter())
-        .listen((line) => stderrBuffer.writeln(line));
 
-    await for (final line in stdoutLines) {
-      if (line.isNotEmpty) yield LogEvent(line);
-      if (line.contains(_filepathMarker)) {
-        final path = _extractFilepath(line);
-        if (path != null) yield FileDownloadedEvent(path);
+    // Bij een tijdelijke YouTube-blokkade (bot-check/rate-limit, lost
+    // meestal vanzelf op) het hele proces na een korte pauze opnieuw
+    // starten i.p.v. de gebruiker meteen een foutmelding te tonen. Een
+    // reeds voltooide entry in een playlist wordt dan wel opnieuw
+    // gedownload (geen --download-archive), maar dat is dezelfde
+    // "altijd opnieuw beginnen"-aanpak als --no-continue hierboven.
+    for (var attempt = 0; ; attempt++) {
+      final process = await Process.start(
+        ytDlp,
+        args,
+        environment: _ytDlpEnvironment,
+      );
+
+      final stdoutLines = process.stdout
+          .transform(lenientUtf8)
+          .transform(const LineSplitter());
+      final stderrBuffer = StringBuffer();
+      final stderrSub = process.stderr
+          .transform(lenientUtf8)
+          .transform(const LineSplitter())
+          .listen((line) => stderrBuffer.writeln(line));
+
+      await for (final line in stdoutLines) {
+        if (line.isNotEmpty) yield LogEvent(line);
+        if (line.contains(_filepathMarker)) {
+          final path = _extractFilepath(line);
+          if (path != null) yield FileDownloadedEvent(path);
+          continue;
+        }
+        final match = _percentRegex.firstMatch(line);
+        if (match != null) {
+          final pct = double.tryParse(match.group(1)!);
+          if (pct != null) yield ProgressEvent(pct);
+          continue;
+        }
+        if (line.startsWith('[download] Destination:') ||
+            line.startsWith('[ExtractAudio]') ||
+            line.startsWith('[Merger]')) {
+          yield StatusEvent(line);
+        }
+      }
+
+      final exitCode = await process.exitCode;
+      await stderrSub.cancel();
+
+      if (exitCode == 0) {
+        yield DownloadDoneEvent(success: true);
+        return;
+      }
+
+      final stderrText = stderrBuffer.toString();
+      if (attempt < _transientRetryDelays.length &&
+          _isTransientYtDlpError(stderrText)) {
+        final delay = _transientRetryDelays[attempt];
+        yield LogEvent(
+          'Tijdelijke YouTube-blokkade, opnieuw proberen over ${delay.inSeconds}s...',
+        );
+        await Future.delayed(delay);
         continue;
       }
-      final match = _percentRegex.firstMatch(line);
-      if (match != null) {
-        final pct = double.tryParse(match.group(1)!);
-        if (pct != null) yield ProgressEvent(pct);
-        continue;
-      }
-      if (line.startsWith('[download] Destination:') ||
-          line.startsWith('[ExtractAudio]') ||
-          line.startsWith('[Merger]')) {
-        yield StatusEvent(line);
-      }
-    }
 
-    final exitCode = await process.exitCode;
-    await stderrSub.cancel();
-
-    if (exitCode != 0) {
-      for (final line in stderrBuffer.toString().split('\n')) {
+      for (final line in stderrText.split('\n')) {
         if (line.trim().isNotEmpty) yield LogEvent('FOUT: $line');
       }
       yield DownloadDoneEvent(
         success: false,
-        error: _shortError(stderrBuffer.toString()),
+        error: _shortError(stderrText),
       );
-    } else {
-      yield DownloadDoneEvent(success: true);
+      return;
     }
   }
 

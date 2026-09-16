@@ -150,7 +150,9 @@ class _HomePageState extends State<HomePage> {
   FileFilter _fileFilter = FileFilter.all;
 
   final List<String> _logs = [];
-  final _logScrollController = ScrollController();
+  // Logpaneel leeft nu in Settings (aparte route); een simpele teller-
+  // notifier laat dat scherm herbouwen zonder de hele HomePage te raken.
+  final ValueNotifier<int> _logsTick = ValueNotifier(0);
   bool _showLogs = false;
   Timer? _inboxTimer;
   String? _pendingFormatId;
@@ -158,17 +160,9 @@ class _HomePageState extends State<HomePage> {
   L10n get t => L10n(widget.language);
 
   void _addLog(String message) {
-    setState(() {
-      _logs.add(message);
-      if (_logs.length > 5000) _logs.removeAt(0);
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_logScrollController.hasClients) {
-        _logScrollController.jumpTo(
-          _logScrollController.position.maxScrollExtent,
-        );
-      }
-    });
+    _logs.add(message);
+    if (_logs.length > 5000) _logs.removeAt(0);
+    _logsTick.value++;
   }
 
   IconData get _playlistModeIcon {
@@ -220,7 +214,7 @@ class _HomePageState extends State<HomePage> {
     _inboxTimer?.cancel();
     _urlController.dispose();
     _searchController.dispose();
-    _logScrollController.dispose();
+    _logsTick.dispose();
     super.dispose();
   }
 
@@ -785,6 +779,8 @@ class _HomePageState extends State<HomePage> {
                     onToggleShowLogs: (value) =>
                         setState(() => _showLogs = value),
                     onSaveLogs: _saveLogs,
+                    logs: _logs,
+                    logsTick: _logsTick,
                   ),
                 ),
               );
@@ -798,39 +794,6 @@ class _HomePageState extends State<HomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (_showLogs) ...[
-                Container(
-                  height: 220,
-                  decoration: BoxDecoration(
-                    color: Colors.black,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  padding: const EdgeInsets.all(8),
-                  child: _logs.isEmpty
-                      ? Center(
-                          child: Text(
-                            t.noLogsYet,
-                            style: const TextStyle(color: Colors.grey),
-                          ),
-                        )
-                      : Scrollbar(
-                          controller: _logScrollController,
-                          child: ListView.builder(
-                            controller: _logScrollController,
-                            itemCount: _logs.length,
-                            itemBuilder: (_, i) => Text(
-                              _logs[i],
-                              style: const TextStyle(
-                                color: Colors.greenAccent,
-                                fontFamily: 'monospace',
-                                fontSize: 11,
-                              ),
-                            ),
-                          ),
-                        ),
-                ),
-                const SizedBox(height: 12),
-              ],
               Row(
                 children: [
                   Expanded(

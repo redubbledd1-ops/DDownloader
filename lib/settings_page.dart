@@ -20,6 +20,8 @@ class SettingsPage extends StatefulWidget {
   final bool showLogs;
   final ValueChanged<bool> onToggleShowLogs;
   final VoidCallback onSaveLogs;
+  final List<String> logs;
+  final Listenable logsTick;
 
   const SettingsPage({
     super.key,
@@ -34,6 +36,8 @@ class SettingsPage extends StatefulWidget {
     required this.showLogs,
     required this.onToggleShowLogs,
     required this.onSaveLogs,
+    required this.logs,
+    required this.logsTick,
   });
 
   @override
@@ -42,6 +46,13 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   late String _downloadDir = widget.downloadDir;
+  final _logScrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _logScrollController.dispose();
+    super.dispose();
+  }
 
   L10n get t => L10n(widget.language);
 
@@ -195,6 +206,52 @@ class _SettingsPageState extends State<SettingsPage> {
               value: widget.showLogs,
               onChanged: widget.onToggleShowLogs,
             ),
+            if (widget.showLogs)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: ListenableBuilder(
+                  listenable: widget.logsTick,
+                  builder: (context, _) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (_logScrollController.hasClients) {
+                        _logScrollController.jumpTo(
+                          _logScrollController.position.maxScrollExtent,
+                        );
+                      }
+                    });
+                    return Container(
+                      height: 220,
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      padding: const EdgeInsets.all(8),
+                      child: widget.logs.isEmpty
+                          ? Center(
+                              child: Text(
+                                t.noLogsYet,
+                                style: const TextStyle(color: Colors.grey),
+                              ),
+                            )
+                          : Scrollbar(
+                              controller: _logScrollController,
+                              child: ListView.builder(
+                                controller: _logScrollController,
+                                itemCount: widget.logs.length,
+                                itemBuilder: (_, i) => Text(
+                                  widget.logs[i],
+                                  style: const TextStyle(
+                                    color: Colors.greenAccent,
+                                    fontFamily: 'monospace',
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ),
+                            ),
+                    );
+                  },
+                ),
+              ),
             ListTile(
               leading: const Icon(Icons.download_for_offline_outlined),
               title: Text(t.saveLogsTooltip),

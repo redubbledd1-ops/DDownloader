@@ -112,7 +112,6 @@ class _SettingsPageState extends State<SettingsPage> {
               value: widget.isDarkMode,
               onChanged: widget.onToggleDarkMode,
             ),
-            const Divider(),
             _SectionHeader(title: t.languageSection),
             ListTile(
               leading: const Icon(Icons.language),
@@ -120,7 +119,6 @@ class _SettingsPageState extends State<SettingsPage> {
               subtitle: Text(widget.language.nativeName),
               onTap: _pickLanguage,
             ),
-            const Divider(),
             _SectionHeader(title: t.folderSection),
             ListTile(
               leading: const Icon(Icons.folder_outlined),
@@ -178,7 +176,6 @@ class _SettingsPageState extends State<SettingsPage> {
                       ], mode: ProcessStartMode.detached),
               ),
             if (Platform.isWindows) ...[
-              const Divider(),
               _SectionHeader(title: t.extensionSection),
               SwitchListTile(
                 title: Text(t.extAutoDownloadTitle),
@@ -191,7 +188,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 onChanged: widget.onChangeAutoDownloadOnClick,
               ),
             ],
-            const Divider(),
             _SectionHeader(title: t.logsTooltip),
             SwitchListTile(
               title: Text(t.showLogsLabel),

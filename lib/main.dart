@@ -948,6 +948,21 @@ class _HomePageState extends State<HomePage> {
                     icon: const Icon(Icons.delete_sweep_outlined),
                     tooltip: t.deleteAllTooltip,
                     onPressed: _downloaded.isEmpty ? null : _deleteAllItems,
+                    style: ButtonStyle(
+                      foregroundColor: WidgetStateProperty.resolveWith((
+                        states,
+                      ) {
+                        if (states.contains(WidgetState.disabled)) {
+                          return Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withValues(alpha: 0.3);
+                        }
+                        if (states.contains(WidgetState.hovered)) {
+                          return Colors.grey;
+                        }
+                        return Theme.of(context).colorScheme.onSurface;
+                      }),
+                    ),
                   ),
                 ],
               ),

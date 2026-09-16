@@ -415,7 +415,18 @@ urlEl.addEventListener("input", () => {
   setBusy(true);
   showGithubLink(false);
   try {
-    await sendNative({ cmd: "ping" });
+    // Een enkele mislukte/trage eerste ping (bv. door een antivirus-scan
+    // op het net gestarte host-proces, of een korte cold-start-vertraging)
+    // liet dit voorheen meteen "app niet gevonden" tonen. Eén retry na
+    // een korte pauze vangt dat soort transiente hikjes op zonder een
+    // echt kapotte installatie te maskeren (die faalt dan gewoon weer).
+    try {
+      await sendNative({ cmd: "ping" });
+    } catch (firstError) {
+      if (!isHostMissingError(firstError)) throw firstError;
+      await new Promise((r) => setTimeout(r, 400));
+      await sendNative({ cmd: "ping" });
+    }
     await loadSettings();
     setBusy(false);
     // Icoon geklikt → popup opent. Alleen meteen downloaden als de
@@ -430,8 +441,12 @@ urlEl.addEventListener("input", () => {
     }
   } catch (e) {
     if (isHostMissingError(e)) {
+      // Onderliggende Chrome-foutmelding meesturen (i.p.v. alleen de
+      // vriendelijke tekst) zodat een volgende mislukking meteen te
+      // herleiden is i.p.v. opnieuw te moeten reproduceren/uitzoeken.
+      const detail = e && e.message ? ` (${e.message})` : "";
       setStatus(
-        "Downloader-app/native host niet gevonden op dit apparaat.",
+        `Downloader-app/native host niet gevonden op dit apparaat.${detail}`,
         "error"
       );
       showGithubLink(true);

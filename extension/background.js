@@ -63,9 +63,16 @@ async function recordDownloaded(url, entry) {
   await chrome.storage.local.set({ [DOWNLOADED_STORAGE_KEY]: map });
 }
 
+function hasNativeMessaging() {
+  return typeof chrome.runtime.connectNative === "function";
+}
+
 function startDirectDownload(payload) {
   if (activeDownload && !activeDownload.done) {
     return { started: false, reason: "already-running" };
+  }
+  if (!hasNativeMessaging()) {
+    return { started: false, reason: "native-messaging-unavailable" };
   }
 
   let port;
@@ -144,6 +151,10 @@ function startDirectDownload(payload) {
 // zodat de popup niet blijft beweren dat het er nog staat.
 function checkFileExists(path) {
   return new Promise((resolve) => {
+    if (!hasNativeMessaging()) {
+      resolve(null);
+      return;
+    }
     let port;
     try {
       port = chrome.runtime.connectNative(HOST_NAME);

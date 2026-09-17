@@ -14,7 +14,10 @@ import java.io.File
 class MainActivity : FlutterActivity() {
     private val channelName = "downoader/ytdlp"
     private val progressChannelName = "downoader/ytdlp/progress"
+    private val intentChannelName = "downoader/intent"
     private var eventSink: EventChannel.EventSink? = null
+    private var intentChannel: MethodChannel? = null
+    private var pendingIntent: Map<String, String>? = null
 
     // android-client levert sinds YouTube's PO/SABR-wijzigingen alleen nog
     // progressive 360p (format 18). default+tv_simply geeft weer alle
@@ -58,6 +61,56 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        intentChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, intentChannelName)
+        intentChannel?.setMethodCallHandler { call, result ->
+            if (call.method == "getInitialUrl") {
+                val payload = pendingIntent ?: extractIncoming(intent)
+                pendingIntent = null
+                result.success(payload)
+            } else {
+                result.notImplemented()
+            }
+        }
+        if (pendingIntent == null) {
+            pendingIntent = extractIncoming(intent)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val payload = extractIncoming(intent) ?: return
+        if (intentChannel != null) {
+            intentChannel?.invokeMethod("incomingUrl", payload)
+        } else {
+            pendingIntent = payload
+        }
+    }
+
+    private fun extractIncoming(intent: Intent?): Map<String, String>? {
+        if (intent == null) return null
+        if (Intent.ACTION_SEND == intent.action) {
+            val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return null
+            val url = Regex("https?://\\S+").find(text)?.value ?: text.trim()
+            if (url.isEmpty()) return null
+            return mapOf("url" to url)
+        }
+        val data = intent.data ?: return null
+        if (data.scheme == "downoader") {
+            val url = data.getQueryParameter("url") ?: return null
+            val format = data.getQueryParameter("format")
+            return if (format.isNullOrEmpty()) {
+                mapOf("url" to url)
+            } else {
+                mapOf("url" to url, "format" to format)
+            }
+        }
+        val asString = data.toString()
+        if (asString.startsWith("http://") || asString.startsWith("https://")) {
+            return mapOf("url" to asString)
+        }
+        return null
     }
 
     private fun handleInit(result: MethodChannel.Result) {

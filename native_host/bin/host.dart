@@ -332,26 +332,64 @@ File prefsFile() => File('${appDataDir().path}\\shared_preferences.json');
 
 File inboxFile() => File('${appDataDir().path}\\extension_inbox.json');
 
+File inboxLockFile() => File('${appDataDir().path}\\extension_inbox.json.lock');
+
+File completedLogFile() =>
+    File('${appDataDir().path}\\extension_completed.jsonl');
+
+T withFileLock<T>(File lockFile, T Function() fn) {
+  lockFile.parent.createSync(recursive: true);
+  RandomAccessFile? raf;
+  for (var i = 0; i < 40; i++) {
+    try {
+      raf = lockFile.openSync(mode: FileMode.write);
+      raf.lockSync(FileLock.exclusive);
+      break;
+    } catch (_) {
+      try {
+        raf?.closeSync();
+      } catch (_) {}
+      raf = null;
+      sleep(const Duration(milliseconds: 25));
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try {
+      raf?.unlockSync();
+    } catch (_) {}
+    try {
+      raf?.closeSync();
+    } catch (_) {}
+    try {
+      lockFile.deleteSync();
+    } catch (_) {}
+  }
+}
+
 // De inbox is een JSON-array (wachtrij), niet één slot: anders kan een
 // settings-melding en een download-opdracht die vlak na elkaar geschreven
 // worden elkaar overschrijven voordat de app ze heeft gelezen (elke
 // popup-actie start een nieuw host-proces, dus dit is een echte
 // inter-process race, geen in-memory state).
 void appendToInbox(Map<String, dynamic> job) {
-  final file = inboxFile();
-  final jobs = <dynamic>[];
-  if (file.existsSync()) {
-    try {
-      final decoded = jsonDecode(file.readAsStringSync());
-      if (decoded is List) {
-        jobs.addAll(decoded);
-      } else if (decoded is Map) {
-        jobs.add(decoded);
-      }
-    } catch (_) {}
-  }
-  jobs.add(job);
-  file.writeAsStringSync(jsonEncode(jobs));
+  withFileLock(inboxLockFile(), () {
+    final file = inboxFile();
+    final jobs = <dynamic>[];
+    if (file.existsSync()) {
+      try {
+        final decoded = jsonDecode(file.readAsStringSync());
+        if (decoded is List) {
+          jobs.addAll(decoded);
+        } else if (decoded is Map) {
+          jobs.add(decoded);
+        }
+      } catch (_) {}
+    }
+    jobs.add(job);
+    file.writeAsStringSync(jsonEncode(jobs));
+  });
 }
 
 Map<String, dynamic> loadPrefsRaw() {
@@ -382,35 +420,60 @@ void savePrefsRaw(Map<String, dynamic> data) {
   file.writeAsStringSync(const JsonEncoder.withIndent('  ').convert(data));
 }
 
-// Direct-downloaden vanuit de extentie draait buiten de Windows-app om, dus
-// de exe weet er niets van. Schrijf het bestand daarom zelf in dezelfde
-// downloaded_items-lijst (zichtbaar zodra de app start) en zet een
-// inbox-melding klaar zodat een al draaiende app 'm meteen live toont.
-void recordDownloadedItem({
-  required String path,
-  required String format,
-  required bool isPlaylist,
-}) {
-  final raw = loadPrefsRaw();
+void _upsertItemList(Map<String, dynamic> raw, String key, Map<String, dynamic> item, {int max = 1000}) {
   final list = <dynamic>[];
-  final existingRaw = raw['flutter.downloaded_items'];
+  final existingRaw = raw[key];
   if (existingRaw is String && existingRaw.isNotEmpty) {
     try {
       final decoded = jsonDecode(existingRaw);
       if (decoded is List) list.addAll(decoded);
     } catch (_) {}
   }
-  list.insert(0, {'path': path, 'isPlaylist': isPlaylist, 'format': format});
-  raw['flutter.downloaded_items'] = jsonEncode(list);
-  savePrefsRaw(raw);
+  list.removeWhere((e) => e is Map && e['path'] == item['path']);
+  list.insert(0, item);
+  if (list.length > max) {
+    list.removeRange(max, list.length);
+  }
+  raw[key] = jsonEncode(list);
+}
+
+// Direct-downloaden vanuit de extentie draait buiten de Windows-app om, dus
+// de exe weet er niets van. Schrijf het bestand daarom zelf in dezelfde
+// downloaded_items-lijst (zichtbaar zodra de app start), in een append-only
+// jsonl (betrouwbaar als SharedPreferences de JSON overschrijft) en zet een
+// inbox-melding klaar zodat een al draaiende app 'm meteen live toont.
+void recordDownloadedItem({
+  required String path,
+  required String format,
+  required bool isPlaylist,
+  String? url,
+}) {
+  if (path.isEmpty) return;
+  final item = {
+    'path': path,
+    'isPlaylist': isPlaylist,
+    'format': format,
+    if (url != null && url.isNotEmpty) 'url': url,
+    'ts': DateTime.now().millisecondsSinceEpoch,
+  };
+
+  try {
+    final raw = loadPrefsRaw();
+    _upsertItemList(raw, 'flutter.downloaded_items', item, max: 500);
+    _upsertItemList(raw, 'flutter.download_history_all', item, max: 1000);
+    savePrefsRaw(raw);
+  } catch (_) {}
+
+  try {
+    final log = completedLogFile();
+    log.parent.createSync(recursive: true);
+    log.writeAsStringSync('${jsonEncode(item)}\n', mode: FileMode.append, flush: true);
+  } catch (_) {}
 
   try {
     appendToInbox({
       'type': 'downloaded',
-      'path': path,
-      'format': format,
-      'isPlaylist': isPlaylist,
-      'ts': DateTime.now().millisecondsSinceEpoch,
+      ...item,
     });
   } catch (_) {}
 }
@@ -826,7 +889,21 @@ Future<void> runDownload({
   }
 
   const lenientUtf8 = Utf8Decoder(allowMalformed: true);
+  final recordedPaths = <String>{};
   String? lastPath;
+
+  void rememberPath(String? path) {
+    if (path == null || path.isEmpty) return;
+    lastPath = path;
+    if (recordedPaths.add(path)) {
+      recordDownloadedItem(
+        path: path,
+        format: format == 'mp3' ? 'mp3' : 'mp4',
+        isPlaylist: isPlaylist,
+        url: url,
+      );
+    }
+  }
 
   // Bij een tijdelijke YouTube-blokkade (bot-check/rate-limit, lost
   // meestal vanzelf op) het hele proces na een korte pauze opnieuw
@@ -849,10 +926,12 @@ Future<void> runDownload({
             .transform(const LineSplitter())) {
       if (line.contains(filepathMarker)) {
         lastPath = extractFilepath(line);
+        rememberPath(lastPath);
+        final foundPath = lastPath;
         await writeMessage({
           'ok': true,
           'line': line,
-          if (lastPath != null && lastPath.isNotEmpty) 'path': lastPath,
+          if (foundPath != null && foundPath.isNotEmpty) 'path': foundPath,
         });
         continue;
       }
@@ -897,18 +976,33 @@ Future<void> runDownload({
     return;
   }
 
-  final finalPath = lastPath;
-  if (finalPath != null && finalPath.isNotEmpty) {
-    recordDownloadedItem(
-      path: finalPath,
-      format: format == 'mp3' ? 'mp3' : 'mp4',
-      isPlaylist: isPlaylist,
-    );
+  if (recordedPaths.isEmpty) {
+    // Fallback: yt-dlp gaf geen bruikbare FILEPATH-regel (encoding/timing).
+    // Pak het nieuwste mediabestand in de downloadmap van de laatste minuten.
+    try {
+      final cutoff = DateTime.now().subtract(const Duration(minutes: 15));
+      final newest = Directory(outputDir)
+          .listSync()
+          .whereType<File>()
+          .where((f) {
+            final n = f.path.toLowerCase();
+            return n.endsWith('.mp4') ||
+                n.endsWith('.mp3') ||
+                n.endsWith('.m4a') ||
+                n.endsWith('.webm') ||
+                n.endsWith('.mkv');
+          })
+          .where((f) => f.lastModifiedSync().isAfter(cutoff))
+          .toList()
+        ..sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+      if (newest.isNotEmpty) rememberPath(newest.first.path);
+    } catch (_) {}
   }
+  final donePath = lastPath;
   await writeMessage({
     'ok': true,
     'done': true,
-    if (lastPath != null && lastPath.isNotEmpty) 'path': lastPath,
+    if (donePath != null && donePath.isNotEmpty) 'path': donePath,
   });
 }
 

@@ -1,4 +1,4 @@
-﻿# Registers the Downloader Native Messaging host for Chrome and/or Edge.
+﻿# Registers the Downloader Native Messaging host for Chrome, Edge and/or Firefox.
 # Auto-detects the unpacked Extension ID when -ExtensionId is omitted.
 
 param(
@@ -8,8 +8,8 @@ param(
 
     [string]$AppExe = "",
 
-    [ValidateSet("chrome", "edge", "both")]
-    [string]$Browsers = "both"
+    [ValidateSet("chrome", "edge", "firefox", "both", "all")]
+    [string]$Browsers = "all"
 )
 
 $ErrorActionPreference = "Stop"
@@ -89,6 +89,7 @@ if (-not $ExtensionId) {
 
 $id = $ExtensionId.Trim().TrimEnd("/")
 $origin = "chrome-extension://$id/"
+$firefoxId = "downloader@downoader.app"
 
 $hostDir = Split-Path -Parent $HostExe
 $manifestPath = Join-Path $hostDir "com.downoader.host.json"
@@ -101,6 +102,9 @@ $json = @"
   "type": "stdio",
   "allowed_origins": [
     "$origin"
+  ],
+  "allowed_extensions": [
+    "$firefoxId"
   ]
 }
 "@
@@ -139,11 +143,18 @@ function Register-Host([string]$RegistryPath) {
 }
 
 $targets = @()
-if ($Browsers -eq "chrome" -or $Browsers -eq "both") {
+if ($Browsers -eq "chrome" -or $Browsers -eq "both" -or $Browsers -eq "all") {
     $targets += "HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.downoader.host"
 }
-if ($Browsers -eq "edge" -or $Browsers -eq "both") {
+if ($Browsers -eq "edge" -or $Browsers -eq "both" -or $Browsers -eq "all") {
     $targets += "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\com.downoader.host"
+}
+if ($Browsers -eq "firefox" -or $Browsers -eq "all") {
+    $targets += "HKCU:\Software\Mozilla\NativeMessagingHosts\com.downoader.host"
+    $ffDir = Join-Path $env:APPDATA "Mozilla\NativeMessagingHosts"
+    New-Item -ItemType Directory -Force -Path $ffDir | Out-Null
+    Copy-Item -Force $manifestPath (Join-Path $ffDir "com.downoader.host.json")
+    Write-Host "Firefox-manifest: $(Join-Path $ffDir 'com.downoader.host.json')"
 }
 
 foreach ($key in $targets) {
@@ -151,7 +162,10 @@ foreach ($key in $targets) {
 }
 
 Write-Host ""
-Write-Host "Klaar. Herlaad de extentie op chrome://extensions (knop refresh),"
+Write-Host "Klaar. Herlaad de extentie:"
+Write-Host "  Chrome/Edge: chrome://extensions of edge://extensions (knop refresh)"
+Write-Host "  Firefox: about:debugging#/runtime/this-firefox -> Load Temporary Add-on"
+Write-Host "           kies extension\manifest.json (zelfde map als Chrome)."
 Write-Host "open daarna de popup opnieuw."
 
 

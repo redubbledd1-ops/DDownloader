@@ -1,6 +1,6 @@
 ﻿# Downloader
 
-Flutter app (Windows + Android) to download video/audio via yt-dlp, plus a Chrome/Edge extension that sends links and settings to the Windows app — no web server.
+Flutter app (Windows + Android) to download video/audio via yt-dlp, plus a browser extension (Chrome, Edge, Firefox desktop, Firefox Android) that sends links and settings to the local app — no web server.
 
 ## License / what you may do
 
@@ -28,7 +28,7 @@ Windows may show a SmartScreen ("Windows protected your PC") warning because the
 2. Download `Downloader-1.0.0.apk` — this is the **Android phone/tablet app** (not a browser extension)
 3. Open the file on your device → allow install from unknown sources if asked → install
 
-The Chrome/Edge extension is Windows-only. On Android you only need the APK app.
+The Chrome/Edge/Firefox extension talks to the Windows app via native messaging. On Android, the Firefox extension opens the APK app (`downoader://download?url=…`). You can also share a link to the Downloader app.
 
 ### Publishing a release (maintainers)
 
@@ -79,28 +79,45 @@ Without a bundled `tools\` folder, the app downloads yt-dlp/ffmpeg/deno on first
 
 On Windows startup the app stores its own path (`flutter.app_exe`) so the extension can launch it.
 
-## Browser extension → Windows app
+## Browser extension → app
+
+Chrome, Edge and Firefox (desktop + Android) all load the **same** [`extension`](extension) folder.
 
 ```mermaid
 flowchart LR
   Tab[Browser_tab] --> Ext[Extension]
   Ext -->|Native_Messaging| Host[native_host]
   Host -->|settings_prefs| Prefs[shared_preferences]
-  Host -->|extension_inbox| App[downoader.exe]
+  Host -->|inbox_and_completed_log| App[downoader.exe]
   App --> YtDlp[yt-dlp]
+  Ext -->|downoader_scheme| AndroidApp[Android_APK]
 ```
 
-- **Settings** in the popup = global app settings (download folder, format, playlist mode, dark mode). Source: `%APPDATA%\com.example\Downloader\shared_preferences.json` (same as the exe).
-- **Send to app** puts the tab URL in an inbox; a running app picks it up and starts the download. If the app is not running, `downoader.exe` is started.
-- **Download here** runs yt-dlp via the native host with the same settings (no app UI).
+- **Settings** in the popup = global app settings (download folder, format, playlist mode). Changes save immediately (no Save button). Source: `%APPDATA%\com.example\Downloader\shared_preferences.json` (same as the exe). Video quality is hidden when the format is MP3.
+- **Send to app** (Windows) puts the tab URL in an inbox; a running app picks it up and starts the download. If the app is not running, `downoader.exe` is started.
+- **Download here** (Windows) runs yt-dlp via the native host. Finished files are written to the same download list as the exe (live if the app is open, otherwise on next launch).
+- **Firefox Android**: native messaging does not exist; **Naar App** opens the Downloader APK with the current URL.
 
-### 1. Load the extension
+### 1. Load the extension (one folder)
+
+**Chrome / Edge**
 
 1. `chrome://extensions` or `edge://extensions`
 2. Developer mode → **Load unpacked** → [`extension`](extension) folder
-3. Copy the extension ID
 
-### 2. Register the native host
+**Firefox desktop**
+
+1. `about:debugging#/runtime/this-firefox`
+2. **Load Temporary Add-on** → select [`extension/manifest.json`](extension/manifest.json)
+3. Temporary add-ons are removed when Firefox restarts (Developer Edition can allow unsigned add-ons permanently)
+
+**Firefox for Android**
+
+1. Install the Downloader APK
+2. From a desktop Firefox: `about:debugging` → connect the phone → **Load Temporary Add-on** with the same `extension` folder
+3. Or zip the folder contents (manifest at the zip root) and install as a file on Firefox Nightly / via debugging
+
+### 2. Register the native host (Windows desktop)
 
 After an installer build the host is in `Release\host\` (or under Program Files after install). For development:
 
@@ -109,15 +126,17 @@ cd native_host
 dart pub get
 dart compile exe bin/host.dart -o ..\extension\host\downoader_native_host.exe
 
-powershell -ExecutionPolicy Bypass -File scripts\install-native-host.ps1 -ExtensionId YOUR_EXTENSION_ID
+powershell -ExecutionPolicy Bypass -File scripts\install-native-host.ps1
 ```
 
-Optional: `-AppExe "C:\path\to\downoader.exe"` `-Browsers chrome|edge|both`
+Optional: `-AppExe "C:\path\to\downoader.exe"` `-Browsers chrome|edge|firefox|both|all`
+
+The host manifest allows both the Chrome/Edge extension ID and the Firefox ID `downloader@downoader.app`.
 
 ### 3. Usage
 
 1. Reload the extension
-2. Open a video tab → extension → adjust settings if needed → **Send to app** / download
+2. Open a video tab → extension → adjust settings if needed (auto-saved) → **Send to app** / download
 
 ### Uninstall
 
@@ -131,7 +150,7 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall-native-host.ps1
 |------|------|
 | `lib/` | Flutter UI + yt-dlp + inbox poller |
 | `native_host/` | Native Messaging host (settings + sendToApp + download) |
-| `extension/` | MV3 Chrome/Edge extension |
+| `extension/` | One MV3 folder for Chrome, Edge, Firefox desktop and Firefox Android |
 | `scripts/` | Native host install/uninstall + Windows installer build |
 | `installer/` | Inno Setup script |
 | `dist/` | Generated Setup.exe / APK (not committed) |
@@ -139,7 +158,6 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall-native-host.ps1
 ## Notes
 
 - No Flutter web target: the browser cannot run yt-dlp.
-- Android has no browser extension — use the APK app only.
-- After moving `downoader.exe` or changing the extension ID: re-run the install script.
+- After moving `downoader.exe` or changing the Chrome extension ID: re-run the install script.
 - To update yt-dlp in an installed app: replace `{installDir}\tools\yt-dlp.exe`, or delete the APPDATA copy so the bundled one is used again.
 

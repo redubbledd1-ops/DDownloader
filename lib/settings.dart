@@ -40,6 +40,48 @@ class Settings {
     return File(p.join(dir.path, 'extension_inbox.json'));
   }
 
+  static Future<File> extensionInboxLockFile() async {
+    final dir = await appDataDir();
+    return File(p.join(dir.path, 'extension_inbox.json.lock'));
+  }
+
+  static Future<File> extensionCompletedFile() async {
+    final dir = await appDataDir();
+    return File(p.join(dir.path, 'extension_completed.jsonl'));
+  }
+
+  static Future<T> _withInboxLock<T>(Future<T> Function() fn) async {
+    final lockFile = await extensionInboxLockFile();
+    await lockFile.parent.create(recursive: true);
+    RandomAccessFile? raf;
+    for (var i = 0; i < 40; i++) {
+      try {
+        raf = await lockFile.open(mode: FileMode.write);
+        await raf.lock(FileLock.exclusive);
+        break;
+      } catch (_) {
+        try {
+          await raf?.close();
+        } catch (_) {}
+        raf = null;
+        await Future.delayed(const Duration(milliseconds: 25));
+      }
+    }
+    try {
+      return await fn();
+    } finally {
+      try {
+        await raf?.unlock();
+      } catch (_) {}
+      try {
+        await raf?.close();
+      } catch (_) {}
+      try {
+        await lockFile.delete();
+      } catch (_) {}
+    }
+  }
+
   static Future<String> getDownloadDir() async {
     final prefs = await SharedPreferences.getInstance();
     var saved = prefs.getString(_keyDownloadDir);
@@ -144,8 +186,15 @@ class Settings {
     return saved;
   }
 
-  static Future<List<DownloadedItem>> getDownloadedItems() async {
+  static Future<List<DownloadedItem>> getDownloadedItems({
+    bool reload = false,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
+    if (reload) {
+      try {
+        await prefs.reload();
+      } catch (_) {}
+    }
     final raw = prefs.getString(_keyDownloaded);
     if (raw == null || raw.isEmpty) return [];
     try {
@@ -281,33 +330,99 @@ class Settings {
   /// steeds alleen de oudste job, de rest blijft staan voor de volgende poll.
   static Future<Map<String, dynamic>?> takeExtensionInbox() async {
     if (!Platform.isWindows) return null;
-    final file = await extensionInboxFile();
-    if (!await file.exists()) return null;
-    try {
-      final decoded = jsonDecode(await file.readAsString());
-      final jobs = <dynamic>[];
-      if (decoded is List) {
-        jobs.addAll(decoded);
-      } else if (decoded is Map) {
-        jobs.add(decoded);
-      }
-      if (jobs.isEmpty) {
-        await file.delete();
-        return null;
-      }
-      final first = jobs.removeAt(0);
-      if (jobs.isEmpty) {
-        await file.delete();
-      } else {
-        await file.writeAsString(jsonEncode(jobs));
-      }
-      if (first is Map<String, dynamic>) return first;
-      if (first is Map) return first.cast<String, dynamic>();
-    } catch (_) {
+    return _withInboxLock(() async {
+      final file = await extensionInboxFile();
+      if (!await file.exists()) return null;
       try {
-        await file.delete();
-      } catch (_) {}
+        final decoded = jsonDecode(await file.readAsString());
+        final jobs = <dynamic>[];
+        if (decoded is List) {
+          jobs.addAll(decoded);
+        } else if (decoded is Map) {
+          jobs.add(decoded);
+        }
+        if (jobs.isEmpty) {
+          await file.delete();
+          return null;
+        }
+        final first = jobs.removeAt(0);
+        if (jobs.isEmpty) {
+          await file.delete();
+        } else {
+          await file.writeAsString(jsonEncode(jobs));
+        }
+        if (first is Map<String, dynamic>) return first;
+        if (first is Map) return first.cast<String, dynamic>();
+      } catch (_) {
+        try {
+          await file.delete();
+        } catch (_) {}
+      }
+      return null;
+    });
+  }
+
+  /// Zet een job terug vooraan in de inbox (app was nog bezig).
+  static Future<void> prependExtensionInbox(Map<String, dynamic> job) async {
+    if (!Platform.isWindows) return;
+    await _withInboxLock(() async {
+      final file = await extensionInboxFile();
+      final jobs = <dynamic>[job];
+      if (await file.exists()) {
+        try {
+          final decoded = jsonDecode(await file.readAsString());
+          if (decoded is List) {
+            jobs.addAll(decoded);
+          } else if (decoded is Map) {
+            jobs.add(decoded);
+          }
+        } catch (_) {}
+      }
+      await file.writeAsString(jsonEncode(jobs));
+    });
+  }
+
+  static const _keyCompletedOffset = 'extension_completed_offset';
+
+  /// Nieuwe regels uit de append-only jsonl van de native host (directe
+  /// extentie-downloads). Offset wordt pas door de caller bevestigd.
+  static Future<({List<DownloadedItem> items, int offset})>
+      readExtensionCompleted() async {
+    if (!Platform.isWindows) return (items: <DownloadedItem>[], offset: 0);
+    final file = await extensionCompletedFile();
+    if (!await file.exists()) return (items: <DownloadedItem>[], offset: 0);
+    final prefs = await SharedPreferences.getInstance();
+    var offset = prefs.getInt(_keyCompletedOffset) ?? 0;
+    final length = await file.length();
+    if (offset > length) offset = 0;
+    if (offset >= length) {
+      return (items: <DownloadedItem>[], offset: length);
     }
-    return null;
+    final raf = await file.open();
+    try {
+      await raf.setPosition(offset);
+      final bytes = await raf.read(length - offset);
+      final text = const Utf8Decoder(allowMalformed: true).convert(bytes);
+      final items = <DownloadedItem>[];
+      for (final line in const LineSplitter().convert(text)) {
+        if (line.trim().isEmpty) continue;
+        try {
+          final decoded = jsonDecode(line);
+          if (decoded is Map) {
+            items.add(
+              DownloadedItem.fromJson(decoded.cast<String, dynamic>()),
+            );
+          }
+        } catch (_) {}
+      }
+      return (items: items, offset: length);
+    } finally {
+      await raf.close();
+    }
+  }
+
+  static Future<void> markExtensionCompletedOffset(int offset) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_keyCompletedOffset, offset);
   }
 }

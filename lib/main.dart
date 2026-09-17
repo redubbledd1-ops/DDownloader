@@ -13,6 +13,8 @@ import 'settings_page.dart';
 import 'theme.dart';
 import 'ytdlp_service.dart';
 
+const _intentChannel = MethodChannel('downoader/intent');
+
 String? _argValue(List<String> args, String name) {
   final prefix = '--$name=';
   for (final a in args) {
@@ -157,6 +159,7 @@ class _HomePageState extends State<HomePage> {
   bool _showLogs = false;
   Timer? _inboxTimer;
   String? _pendingFormatId;
+  bool _inboxPolling = false;
 
   L10n get t => L10n(widget.language);
 
@@ -249,106 +252,173 @@ class _HomePageState extends State<HomePage> {
       _inboxTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         _pollExtensionInbox();
       });
+      await _pollExtensionInbox();
+    }
+    if (Platform.isAndroid) {
+      _listenAndroidIntents();
     }
   }
 
-  Future<void> _pollExtensionInbox() async {
-    if (_busy || !mounted) return;
-    final job = await Settings.takeExtensionInbox();
-    if (job == null) return;
+  void _listenAndroidIntents() {
+    _intentChannel.setMethodCallHandler((call) async {
+      if (call.method == 'incomingUrl') {
+        _handleIncomingFromAndroid(call.arguments);
+      }
+    });
+    _intentChannel.invokeMethod<dynamic>('getInitialUrl').then((args) {
+      if (!mounted || args == null) return;
+      if (widget.initialUrl != null && widget.initialUrl!.isNotEmpty) return;
+      _handleIncomingFromAndroid(args);
+    }).catchError((_) {});
+  }
 
-    // Extentie downloadde rechtstreeks via de native host (buiten de app
-    // om) — alleen de app-lijst bijwerken, niets opnieuw downloaden.
-    if (job['type']?.toString() == 'downloaded') {
-      final path = job['path']?.toString() ?? '';
-      if (path.isEmpty) return;
-      final formatName = job['format']?.toString();
-      final formatMatch = OutputFormat.values.where(
-        (e) => e.name == formatName,
-      );
-      final format = formatMatch.isNotEmpty
-          ? formatMatch.first
-          : OutputFormat.mp4;
-      final downloadedItem = DownloadedItem(
-        path: path,
-        isPlaylist: job['isPlaylist'] == true,
-        format: format,
-      );
-      setState(() {
-        _downloaded.insert(0, downloadedItem);
-      });
-      await Settings.setDownloadedItems(_downloaded);
-      await Settings.addDownloadHistoryItem(downloadedItem);
-      await Settings.addFolderHistory(p.dirname(path));
-      _addLog('Extentie: bestand gedownload ($path)');
-      return;
+  void _handleIncomingFromAndroid(dynamic args) {
+    String? url;
+    String? formatName;
+    if (args is String) {
+      url = args;
+    } else if (args is Map) {
+      url = args['url']?.toString();
+      formatName = args['format']?.toString();
     }
-
-    final patch = job['settings'];
-    if (patch is Map) {
-      final downloadDir = patch['downloadDir']?.toString();
-      if (downloadDir != null && downloadDir.isNotEmpty) {
-        await Settings.setDownloadDir(downloadDir);
-        await Settings.addFolderHistory(downloadDir);
-        setState(() => _downloadDir = downloadDir);
-      }
-      final playlistMode = patch['playlistMode']?.toString();
-      if (playlistMode != null) {
-        final mode = PlaylistMode.values.where((e) => e.name == playlistMode);
-        if (mode.isNotEmpty) {
-          await Settings.setPlaylistMode(mode.first);
-          setState(() => _playlistMode = mode.first);
-        }
-      }
-      final formatName = patch['format']?.toString();
-      if (formatName != null) {
-        final match = OutputFormat.values.where((e) => e.name == formatName);
-        if (match.isNotEmpty) {
-          await Settings.setDefaultFormat(match.first);
-          setState(() => _format = match.first);
-        }
-      }
-      final qualityName = patch['preferredVideoQuality']?.toString();
-      if (qualityName != null) {
-        final match = PreferredVideoQuality.values.where(
-          (e) => e.name == qualityName,
-        );
-        if (match.isNotEmpty) {
-          await Settings.setPreferredVideoQuality(match.first);
-          setState(() => _videoQuality = match.first);
-        }
-      }
-      final autoDownload = patch['autoDownloadOnClick'];
-      if (autoDownload is bool) {
-        await Settings.setAutoDownloadOnClick(autoDownload);
-        setState(() => _autoDownloadOnClick = autoDownload);
-      }
-    }
-
-    // Alleen settings (van "Instellingen opslaan") — geen download.
-    if (job['type']?.toString() == 'settings') {
-      _addLog('Extentie: app-instellingen bijgewerkt');
-      return;
-    }
-
-    final url = job['url']?.toString() ?? '';
-    if (url.isEmpty) return;
-
-    final formatName = job['format']?.toString();
-    final formatId = job['formatId']?.toString();
+    if (url == null || url.isEmpty) return;
     setState(() {
-      _urlController.text = url;
+      _urlController.text = url!;
       if (formatName != null) {
         final match = OutputFormat.values.where((e) => e.name == formatName);
         if (match.isNotEmpty) _format = match.first;
       }
     });
+    if (!_busy) _startDownload();
+  }
+
+  DownloadedItem _itemFromInboxMap(Map job) {
+    final formatName = job['format']?.toString();
+    final formatMatch = OutputFormat.values.where((e) => e.name == formatName);
+    return DownloadedItem(
+      path: job['path']?.toString() ?? '',
+      isPlaylist: job['isPlaylist'] == true,
+      format: formatMatch.isNotEmpty ? formatMatch.first : OutputFormat.mp4,
+    );
+  }
+
+  Future<void> _rememberDownloadedItem(DownloadedItem item) async {
+    if (!mounted || item.path.isEmpty) return;
+    if (_downloaded.any((i) => i.path == item.path)) return;
+    setState(() => _downloaded.insert(0, item));
+    await Settings.setDownloadedItems(_downloaded);
+    await Settings.addDownloadHistoryItem(item);
+    await Settings.addFolderHistory(p.dirname(item.path));
+    _addLog('Extentie: bestand gedownload (${item.path})');
+  }
+
+  Future<void> _mergeExtensionDownloads() async {
+    final batch = await Settings.readExtensionCompleted();
+    for (final item in batch.items) {
+      await _rememberDownloadedItem(item);
+    }
+    if (batch.items.isNotEmpty) {
+      await Settings.markExtensionCompletedOffset(batch.offset);
+    }
+    final fromPrefs = await Settings.getDownloadedItems(reload: true);
+    for (final item in fromPrefs) {
+      await _rememberDownloadedItem(item);
+    }
+  }
+
+  Future<void> _applyInboxSettings(Map patch) async {
+    final downloadDir = patch['downloadDir']?.toString();
+    if (downloadDir != null && downloadDir.isNotEmpty) {
+      await Settings.setDownloadDir(downloadDir);
+      await Settings.addFolderHistory(downloadDir);
+      setState(() => _downloadDir = downloadDir);
+    }
+    final playlistMode = patch['playlistMode']?.toString();
+    if (playlistMode != null) {
+      final mode = PlaylistMode.values.where((e) => e.name == playlistMode);
+      if (mode.isNotEmpty) {
+        await Settings.setPlaylistMode(mode.first);
+        setState(() => _playlistMode = mode.first);
+      }
+    }
+    final formatName = patch['format']?.toString();
     if (formatName != null) {
       final match = OutputFormat.values.where((e) => e.name == formatName);
-      if (match.isNotEmpty) await Settings.setDefaultFormat(match.first);
+      if (match.isNotEmpty) {
+        await Settings.setDefaultFormat(match.first);
+        setState(() => _format = match.first);
+      }
     }
-    _addLog('Extentie: download gestart voor $url');
-    await _startDownload(formatIdOverride: formatId);
+    final qualityName = patch['preferredVideoQuality']?.toString();
+    if (qualityName != null) {
+      final match = PreferredVideoQuality.values.where(
+        (e) => e.name == qualityName,
+      );
+      if (match.isNotEmpty) {
+        await Settings.setPreferredVideoQuality(match.first);
+        setState(() => _videoQuality = match.first);
+      }
+    }
+    final autoDownload = patch['autoDownloadOnClick'];
+    if (autoDownload is bool) {
+      await Settings.setAutoDownloadOnClick(autoDownload);
+      setState(() => _autoDownloadOnClick = autoDownload);
+    }
+  }
+
+  Future<void> _pollExtensionInbox() async {
+    if (!mounted || _inboxPolling) return;
+    _inboxPolling = true;
+    try {
+      await _mergeExtensionDownloads();
+      while (mounted) {
+        final job = await Settings.takeExtensionInbox();
+        if (job == null) break;
+
+        final type = job['type']?.toString();
+        if (type == 'downloaded') {
+          await _rememberDownloadedItem(_itemFromInboxMap(job));
+          continue;
+        }
+
+        final patch = job['settings'];
+        if (patch is Map) {
+          await _applyInboxSettings(patch);
+        }
+        if (type == 'settings') {
+          _addLog('Extentie: app-instellingen bijgewerkt');
+          continue;
+        }
+
+        final url = job['url']?.toString() ?? '';
+        if (url.isEmpty) continue;
+        if (_busy) {
+          await Settings.prependExtensionInbox(job);
+          break;
+        }
+
+        final formatName = job['format']?.toString();
+        final formatId = job['formatId']?.toString();
+        setState(() {
+          _urlController.text = url;
+          if (formatName != null) {
+            final match = OutputFormat.values.where((e) => e.name == formatName);
+            if (match.isNotEmpty) _format = match.first;
+          }
+        });
+        if (formatName != null) {
+          final match = OutputFormat.values.where((e) => e.name == formatName);
+          if (match.isNotEmpty) await Settings.setDefaultFormat(match.first);
+        }
+        _addLog('Extentie: download gestart voor $url');
+        // Niet awaiten: anders merget de poller geen directe
+        // extentie-downloads zolang deze app-download loopt.
+        _startDownload(formatIdOverride: formatId);
+        break;
+      }
+    } finally {
+      _inboxPolling = false;
+    }
   }
 
   Future<void> _loadFormat() async {
@@ -383,7 +453,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _loadDownloaded() async {
-    final items = await Settings.getDownloadedItems();
+    final items = await Settings.getDownloadedItems(reload: true);
     final existing = items.where((i) => File(i.path).existsSync()).toList();
     setState(() {
       _downloaded.clear();

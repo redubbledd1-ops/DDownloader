@@ -45,7 +45,7 @@
     </a>
     <progress id="progress" max="100" value="0" hidden></progress>
 
-    <div class="row" id="qualityRow">
+    <div class="row" id="qualityRow" hidden>
       <label class="field grow" id="qualityField">
         <span>Kwaliteit</span>
         <select id="quality" disabled>
@@ -61,7 +61,7 @@
 
     <details class="settings">
       <summary>App-instellingen</summary>
-      <p class="hint">Zelfde waarden als in de Windows-app (bron: exe).</p>
+      <p class="hint">Zelfde waarden als in de Windows-app (bron: exe). Wijzigingen worden meteen opgeslagen.</p>
 
       <label class="field">
         <span>Downloadmap</span>
@@ -86,7 +86,7 @@
         </label>
       </div>
 
-      <label class="field">
+      <label class="field" id="preferredQualityRow">
         <span>Video-kwaliteit (app-voorkeur)</span>
         <select id="preferredQuality">
           <option value="ask">Altijd vragen</option>
@@ -111,8 +111,6 @@
         <input id="directDownloadEnabled" type="checkbox" checked />
         <span>"Direct Downloaden"-knop tonen (zonder app-UI)</span>
       </label>
-
-      <button id="saveSettings" type="button">Instellingen opslaan</button>
     </details>
 
     <script src="popup.js"></script>

@@ -371,7 +371,7 @@ begin
         RegisterNativeHostFor('Software\Mozilla\NativeMessagingHosts\com.downoader.host', FirefoxManifestPath);
         FirefoxCopyDir := ExpandConstant('{userappdata}\Mozilla\NativeMessagingHosts');
         ForceDirectories(FirefoxCopyDir);
-        FileCopy(FirefoxManifestPath, FirefoxCopyDir + '\com.downoader.host.json', False);
+        CopyFile(FirefoxManifestPath, FirefoxCopyDir + '\com.downoader.host.json', False);
       end;
     end;
   end;

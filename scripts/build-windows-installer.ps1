@@ -72,16 +72,24 @@ try {
 
 
 Write-Host "=== 3b/5 Extentie-bestanden kopieren ===" -ForegroundColor Cyan
-# Zorg dat fixed extension key/id bestaan
+# Fixed extension key/id: alleen opnieuw genereren als python beschikbaar is
+# en extension-id.txt ontbreekt (anders blijft de vaste ID uit de repo).
+$idFile = Join-Path $root "installer\extension-id.txt"
 $genKey = Join-Path $root "installer\gen_ext_key.py"
-if (Test-Path $genKey) {
-    python $genKey | Write-Host
+$python = $null
+foreach ($c in @("python", "py")) {
+    $cmd = Get-Command $c -ErrorAction SilentlyContinue
+    if ($cmd) { $python = $cmd.Source; break }
+}
+if ($python -and (Test-Path $genKey) -and -not (Test-Path $idFile)) {
+    & $python $genKey | Write-Host
+} elseif (-not (Test-Path $idFile)) {
+    Write-Host "Waarschuwing: geen python en geen extension-id.txt — vaste fallback-ID wordt gebruikt."
 }
 $extSrc = Join-Path $root "extension"
 $extDst = Join-Path $releaseDir "extension"
 if (Test-Path $extDst) { Remove-Item -Recurse -Force $extDst }
 New-Item -ItemType Directory -Force -Path $extDst | Out-Null
-# Alleen de unpacked extentie (geen host-exe; die staat in {app}\host)
 # Alleen de unpacked extentie (geen host-exe; die staat in {app}\host)
 Copy-Item -Force (Join-Path $extSrc "manifest.json") $extDst
 Copy-Item -Force (Join-Path $extSrc "background.js") $extDst
@@ -90,7 +98,7 @@ Copy-Item -Force (Join-Path $extSrc "popup.html") $extDst
 Copy-Item -Force (Join-Path $extSrc "popup.css") $extDst -ErrorAction SilentlyContinue
 Copy-Item -Recurse -Force (Join-Path $extSrc "icons") (Join-Path $extDst "icons")
 Copy-Item -Force (Join-Path $root "installer\extension-guide.html") (Join-Path $extDst "INSTALL-EXTENSION.html")
-$idLine = (Get-Content (Join-Path $root "installer\extension-id.txt") | Where-Object { $_ -like "ExtensionId=*" } | Select-Object -First 1)
+$idLine = (Get-Content $idFile -ErrorAction SilentlyContinue | Where-Object { $_ -like "ExtensionId=*" } | Select-Object -First 1)
 $extId = if ($idLine) { $idLine.Substring("ExtensionId=".Length).Trim() } else { "meecghmbaeipmpnopapdkknnjcgconeh" }
 Write-Host "Extension ID: $extId"
 

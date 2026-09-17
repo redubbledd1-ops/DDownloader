@@ -15,41 +15,43 @@ See [`LICENSE`](LICENSE). Short version:
 ## Windows use
 
 1. Go to [Releases](https://github.com/redubbledd1-ops/Downloader/releases)
-2. Download `DownloaderSetup-1.0.0.exe` (or the latest Setup)
-3. Run the installer (default folder: `C:\Program Files (x86)\DownloaderD` — app, tools, host, and extension all live there; optional Chrome/Edge extension setup)
+2. Download `DownloaderSetup-1.1.0.exe` (or the latest Setup)
+3. Run the installer (default folder: `C:\Program Files (x86)\DownloaderD` — app, tools, host, and extension all live there)
 
-During setup you choose a **download folder**, and you can enable **Chrome** and/or **Edge**. The installer prepares the extension files, registers native messaging, and opens the extensions page so you can **Load unpacked** once.
+During setup you choose a **download folder**. If Chrome, Edge and/or **Firefox** are installed, the installer shows optional tasks to set up that browser’s extension (same `extension` folder for all). For Firefox it registers native messaging and can open `about:debugging` so you can **Load Temporary Add-on** once.
 
 Windows may show a SmartScreen ("Windows protected your PC") warning because the installer is not yet Authenticode-signed. Click **More info** → **Run anyway**. A paid code-signing certificate is required to remove that warning for good.
 
 ## Android use
 
 1. Go to [Releases](https://github.com/redubbledd1-ops/Downloader/releases)
-2. Download `Downloader-1.0.0.apk` — this is the **Android phone/tablet app** (not a browser extension)
+2. Download `Downloader-1.1.0.apk` — this is the **Android phone/tablet app** (not a browser extension)
 3. Open the file on your device → allow install from unknown sources if asked → install
 
 The Chrome/Edge/Firefox extension talks to the Windows app via native messaging. On Android, the Firefox extension opens the APK app (`downoader://download?url=…`). You can also share a link to the Downloader app.
 
 ### Publishing a release (maintainers)
 
-Built files land in `dist\` locally; they are not uploaded to GitHub automatically.
+Built files land in `dist\` locally (gitignored). Upload them to **GitHub Releases** — do not commit the `.exe` / `.apk` into the repo.
 
 ```powershell
-# Windows Setup
+# Windows Setup → dist\DownloaderSetup-1.1.0.exe
 powershell -ExecutionPolicy Bypass -File scripts\build-windows-installer.ps1
 
-# Android APK
+# Android APK → dist\Downloader-1.1.0.apk
 flutter build apk --release
-Copy-Item -Force build\app\outputs\flutter-apk\app-release.apk dist\Downloader-1.0.0.apk
+New-Item -ItemType Directory -Force -Path dist | Out-Null
+Copy-Item -Force build\app\outputs\flutter-apk\app-release.apk dist\Downloader-1.1.0.apk
 
-# Create a new release (one line — works in cmd and PowerShell)
-gh release create v1.0.0 "dist\DownloaderSetup-1.0.0.exe" "dist\Downloader-1.0.0.apk" --title "Downloader 1.0.0" --notes "Windows installer + Android APK"
+# Create GitHub release (from main)
+git push origin main
+gh release create v1.1.0 "dist\DownloaderSetup-1.1.0.exe" "dist\Downloader-1.1.0.apk" --title "Downloader 1.1.0" --notes "Windows installer + Android APK (Firefox desktop + Android extension support)"
 
 # Or add files to an existing release
-gh release upload v1.0.0 "dist\Downloader-1.0.0.apk" --clobber
+gh release upload v1.1.0 "dist\Downloader-1.1.0.apk" --clobber
 ```
 
-Release page: `https://github.com/redubbledd1-ops/Downloader/releases/tag/v1.0.0`
+Release page: `https://github.com/redubbledd1-ops/Downloader/releases/tag/v1.1.0`
 
 ## Developers — build the Windows installer
 
@@ -62,7 +64,7 @@ This will:
 1. `flutter build windows --release`
 2. Download yt-dlp / ffmpeg / deno into `build\...\Release\tools\`
 3. Compile the native host into `Release\host\`
-4. Build Setup.exe with Inno Setup → `dist\DownloaderSetup-1.0.0.exe`
+4. Build Setup.exe with Inno Setup → `dist\DownloaderSetup-1.1.0.exe`
 
 Requires Flutter SDK + Dart SDK. Inno Setup 6+ is installed via winget if missing.
 
@@ -113,9 +115,23 @@ flowchart LR
 
 **Firefox for Android**
 
-1. Install the Downloader APK
-2. From a desktop Firefox: `about:debugging` → connect the phone → **Load Temporary Add-on** with the same `extension` folder
-3. Or zip the folder contents (manifest at the zip root) and install as a file on Firefox Nightly / via debugging
+Firefox Android does **not** support `background.service_worker`. Use the helper (builds a copy of the same `extension/` folder without that key):
+
+```powershell
+# USB-debugging + Firefox "Remote Debugging via USB" aan, Downloader-APK geïnstalleerd
+powershell -ExecutionPolicy Bypass -File scripts\run-firefox-android.ps1
+# of met vast device-id:
+powershell -ExecutionPolicy Bypass -File scripts\run-firefox-android.ps1 -Device 437d872e
+```
+
+Handmatig:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\prepare-firefox-android.ps1
+npx web-ext run -t firefox-android --firefox-apk org.mozilla.firefox --android-device=437d872e --source-dir extension-firefox-android
+```
+
+On Android the popup button **Naar App** opens the Downloader APK (`downoader://download?url=…`). There is no native messaging on mobile.
 
 ### 2. Register the native host (Windows desktop)
 
@@ -131,7 +147,7 @@ powershell -ExecutionPolicy Bypass -File scripts\install-native-host.ps1
 
 Optional: `-AppExe "C:\path\to\downoader.exe"` `-Browsers chrome|edge|firefox|both|all`
 
-The host manifest allows both the Chrome/Edge extension ID and the Firefox ID `downloader@downoader.app`.
+The host uses separate Chrome/Edge and Firefox manifests (Firefox rejects Chrome’s `allowed_origins` key). Firefox ID: `downloader@downoader.app`.
 
 ### 3. Usage
 

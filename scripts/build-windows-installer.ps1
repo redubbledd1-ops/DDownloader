@@ -21,7 +21,7 @@ Set-Location $root
 $releaseDir = Join-Path $root "build\windows\x64\runner\Release"
 $distDir = Join-Path $root "dist"
 $legacyRelease = Join-Path $root "Release"
-$version = "1.0.0"
+$version = "1.1.0"
 
 function Find-ISCC {
     $candidates = @(
@@ -81,6 +81,7 @@ $extSrc = Join-Path $root "extension"
 $extDst = Join-Path $releaseDir "extension"
 if (Test-Path $extDst) { Remove-Item -Recurse -Force $extDst }
 New-Item -ItemType Directory -Force -Path $extDst | Out-Null
+# Alleen de unpacked extentie (geen host-exe; die staat in {app}\host)
 # Alleen de unpacked extentie (geen host-exe; die staat in {app}\host)
 Copy-Item -Force (Join-Path $extSrc "manifest.json") $extDst
 Copy-Item -Force (Join-Path $extSrc "background.js") $extDst

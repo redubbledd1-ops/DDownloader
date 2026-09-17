@@ -1,7 +1,7 @@
 name: downoader_native_host
 description: Chrome/Edge Native Messaging host for Downloader
 publish_to: "none"
-version: 1.0.0
+version: 1.1.0
 
 environment:
   sdk: ^3.12.2

@@ -12,32 +12,31 @@
   ol { padding-left: 1.25rem; }
   li { margin: 0.55rem 0; }
   .note { opacity: 0.85; font-size: 0.95rem; }
-  button { font: inherit; padding: 0.45rem 0.9rem; cursor: pointer; margin-top: 0.5rem; }
 </style>
 </head>
 <body>
-  <h1>Downloader-extentie laden</h1>
-  <p>Chrome, Edge en Firefox gebruiken <strong>dezelfde map</strong>. Browsers laten extenties niet stilzwijgend installeren — dit is eenmalig (~20 seconden).</p>
+  <h1>Downloader-extentie laden (v1.1)</h1>
+  <p>Chrome, Edge en Firefox (Windows) gebruiken <strong>dezelfde map</strong>. Browsers laten extenties niet stilzwijgend installeren — dit is eenmalig (~20 seconden).</p>
 
   <h2>Chrome / Edge</h2>
   <ol>
-    <li>Open de extentiepagina (<code>chrome://extensions</code> of <code>edge://extensions</code>).</li>
-    <li>Zet rechtsboven <strong>Developer mode</strong> / <strong>Ontwikkelaarsmodus</strong> aan.</li>
-    <li>Klik <strong>Load unpacked</strong> / <strong>Uitgepakte extensie laden</strong>.</li>
+    <li>Open <code>chrome://extensions</code> of <code>edge://extensions</code>.</li>
+    <li>Zet <strong>Ontwikkelaarsmodus</strong> / Developer mode aan.</li>
+    <li>Klik <strong>Uitgepakte extensie laden</strong> / Load unpacked.</li>
     <li>Kies deze map:<br/><span class="path" id="extpath">EXTENSION_PATH</span></li>
   </ol>
 
-  <h2>Firefox (desktop)</h2>
+  <h2>Firefox (Windows)</h2>
   <ol>
     <li>Open <code>about:debugging#/runtime/this-firefox</code>.</li>
-    <li>Klik <strong>Load Temporary Add-on</strong> / <strong>Tijdelijke add-on laden</strong>.</li>
+    <li>Klik <strong>Tijdelijke add-on laden</strong> / Load Temporary Add-on.</li>
     <li>Kies <code>manifest.json</code> in dezelfde map als hierboven.</li>
   </ol>
-  <p class="note">Tijdelijke Firefox-add-ons verdwijnen na een herstart. Voor een permanente installatie: Firefox Developer Edition, of later een ondertekende .xpi.</p>
+  <p class="note">Tijdelijke Firefox-add-ons verdwijnen na een herstart. Native messaging registreert de installer als je Firefox hebt aangevinkt.</p>
 
   <h2>Firefox voor Android</h2>
-  <p>Installeer eerst de Downloader-app (APK). Daarna dezelfde extentie-map laden via debug (desktop <code>about:debugging</code> → je telefoon) of “add-on vanuit bestand”. Op Android opent de knop <strong>Naar App</strong> de Downloader-app (geen native messaging).</p>
-
-  <p class="note">Daarna verschijnt het Downloader-icoon in de werkbalk. Native messaging is al door de installer geregistreerd voor desktop-browsers.</p>
+  <p>Installeer de Downloader-APK. Laad de Android-variant vanaf de pc met:</p>
+  <p class="path">scripts\run-firefox-android.ps1</p>
+  <p class="note">Op Android opent <strong>Naar App</strong> de Downloader-app (geen native messaging in de browser).</p>
 </body>
 </html>

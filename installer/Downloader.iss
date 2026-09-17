@@ -3,7 +3,7 @@
 
 #define MyAppName "Downloader"
 #define MyAppDirName "DownloaderD"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Downloader"
 #define MyAppURL "https://github.com/redubbledd1-ops/Downloader"
 #define MyAppExeName "downoader.exe"
@@ -49,11 +49,32 @@ VersionInfoCopyright=Copyright (C) 2026 {#MyAppPublisher}
 Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "dutch"; MessagesFile: "compiler:Languages\Dutch.isl"
 
+[CustomMessages]
+; Visible on the "Select Additional Tasks" page when that browser is installed.
+english.TaskExtGroup=Browser extension (optional — same folder for all browsers):
+dutch.TaskExtGroup=Browser-extentie (optioneel — dezelfde map voor alle browsers):
+english.TaskExtChrome=Set up Chrome extension (Load unpacked after install)
+dutch.TaskExtChrome=Chrome-extentie instellen (na installatie: Uitgepakte extensie laden)
+english.TaskExtEdge=Set up Edge extension (Load unpacked after install)
+dutch.TaskExtEdge=Edge-extentie instellen (na installatie: Uitgepakte extensie laden)
+english.TaskExtFirefox=Set up Firefox extension (about:debugging → Load Temporary Add-on → same extension folder)
+dutch.TaskExtFirefox=Firefox-extentie instellen (about:debugging → Tijdelijke add-on laden → dezelfde extentie-map)
+english.RunOpenExtFolder=Open extension folder (for Load unpacked / Temporary Add-on)
+dutch.RunOpenExtFolder=Extentie-map openen (voor Load unpacked / Tijdelijke add-on)
+english.RunChromeExt=Open Chrome extensions page
+dutch.RunChromeExt=Chrome-extentiespagina openen
+english.RunEdgeExt=Open Edge extensions page
+dutch.RunEdgeExt=Edge-extentiespagina openen
+english.RunFirefoxExt=Open Firefox debugging (Load Temporary Add-on — select manifest.json)
+dutch.RunFirefoxExt=Firefox-debugging openen (Tijdelijke add-on laden — kies manifest.json)
+english.RunExtGuide=Open extension install guide (Chrome, Edge and Firefox)
+dutch.RunExtGuide=Extentie-installatiegids openen (Chrome, Edge en Firefox)
+
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-Name: "extchrome"; Description: "Set up Chrome extension (Load unpacked)"; GroupDescription: "Browser extension:"; Flags: unchecked; Check: ChromeInstalled
-Name: "extedge"; Description: "Set up Edge extension (Load unpacked)"; GroupDescription: "Browser extension:"; Flags: unchecked; Check: EdgeInstalled
-Name: "extfirefox"; Description: "Set up Firefox extension (same folder; Load temporary add-on)"; GroupDescription: "Browser extension:"; Flags: unchecked; Check: FirefoxInstalled
+Name: "extchrome"; Description: "{cm:TaskExtChrome}"; GroupDescription: "{cm:TaskExtGroup}"; Flags: unchecked; Check: ChromeInstalled
+Name: "extedge"; Description: "{cm:TaskExtEdge}"; GroupDescription: "{cm:TaskExtGroup}"; Flags: unchecked; Check: EdgeInstalled
+Name: "extfirefox"; Description: "{cm:TaskExtFirefox}"; GroupDescription: "{cm:TaskExtGroup}"; Flags: unchecked; Check: FirefoxInstalled
 
 [Files]
 Source: "{#BuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -66,11 +87,11 @@ Name: "{group}\Install extension (guide)"; Filename: "{app}\extension\INSTALL-EX
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
-Filename: "{win}\explorer.exe"; Parameters: """{app}\extension"""; Description: "Open extension folder (for Load unpacked)"; Flags: postinstall nowait skipifsilent; Check: WantAnyExtension
-Filename: "{code:GetChromeExe}"; Parameters: "--new-window chrome://extensions"; Description: "Open Chrome extensions page"; Flags: postinstall nowait skipifsilent; Check: WantChromeExtension
-Filename: "{code:GetEdgeExe}"; Parameters: "--new-window edge://extensions"; Description: "Open Edge extensions page"; Flags: postinstall nowait skipifsilent; Check: WantEdgeExtension
-Filename: "{code:GetFirefoxExe}"; Parameters: "-new-window about:debugging#/runtime/this-firefox"; Description: "Open Firefox debugging (Load Temporary Add-on)"; Flags: postinstall nowait skipifsilent; Check: WantFirefoxExtension
-Filename: "{app}\extension\INSTALL-EXTENSION.html"; Description: "Open extension install guide"; Flags: postinstall shellexec skipifsilent; Check: WantAnyExtension
+Filename: "{win}\explorer.exe"; Parameters: """{app}\extension"""; Description: "{cm:RunOpenExtFolder}"; Flags: postinstall nowait skipifsilent; Check: WantAnyExtension
+Filename: "{code:GetChromeExe}"; Parameters: "--new-window chrome://extensions"; Description: "{cm:RunChromeExt}"; Flags: postinstall nowait skipifsilent; Check: WantChromeExtension
+Filename: "{code:GetEdgeExe}"; Parameters: "--new-window edge://extensions"; Description: "{cm:RunEdgeExt}"; Flags: postinstall nowait skipifsilent; Check: WantEdgeExtension
+Filename: "{code:GetFirefoxExe}"; Parameters: "-new-window about:debugging#/runtime/this-firefox"; Description: "{cm:RunFirefoxExt}"; Flags: postinstall nowait skipifsilent; Check: WantFirefoxExtension
+Filename: "{app}\extension\INSTALL-EXTENSION.html"; Description: "{cm:RunExtGuide}"; Flags: postinstall shellexec skipifsilent; Check: WantAnyExtension
 
 [Code]
 var
@@ -174,12 +195,14 @@ end;
 
 procedure WriteNativeHostManifest;
 var
-  HostExe, ManifestPath, Json, Origin, FirefoxId: string;
+  HostExe, ManifestPath, FirefoxManifestPath, Json, Origin, FirefoxId: string;
 begin
   HostExe := ExpandConstant('{app}\host\downoader_native_host.exe');
   ManifestPath := ExpandConstant('{app}\host\com.downoader.host.json');
+  FirefoxManifestPath := ExpandConstant('{app}\host\com.downoader.host.firefox.json');
   Origin := 'chrome-extension://{#MyExtensionId}/';
   FirefoxId := 'downloader@downoader.app';
+  { Chrome/Edge: allowed_origins only — Firefox rejects this key. }
   Json :=
     '{' + #13#10 +
     '  "name": "com.downoader.host",' + #13#10 +
@@ -188,13 +211,23 @@ begin
     '  "type": "stdio",' + #13#10 +
     '  "allowed_origins": [' + #13#10 +
     '    "' + Origin + '"' + #13#10 +
-    '  ],' + #13#10 +
-    '  "allowed_extensions": [' + #13#10 +
-    '    "' + FirefoxId + '"' + #13#10 +
     '  ]' + #13#10 +
     '}';
   ForceDirectories(ExtractFileDir(ManifestPath));
   SaveStringToFile(ManifestPath, Json, False);
+  { Firefox: allowed_extensions only — Chrome ignores this if mixed, but
+    Firefox refuses manifests that also contain allowed_origins. }
+  Json :=
+    '{' + #13#10 +
+    '  "name": "com.downoader.host",' + #13#10 +
+    '  "description": "Downloader Native Messaging host (yt-dlp)",' + #13#10 +
+    '  "path": "' + EscapeJsonPath(HostExe) + '",' + #13#10 +
+    '  "type": "stdio",' + #13#10 +
+    '  "allowed_extensions": [' + #13#10 +
+    '    "' + FirefoxId + '"' + #13#10 +
+    '  ]' + #13#10 +
+    '}';
+  SaveStringToFile(FirefoxManifestPath, Json, False);
 end;
 
 procedure RegisterNativeHostFor(const RegSubKey: string; const ManifestPath: string);
@@ -209,30 +242,29 @@ begin
   Dest := ExpandConstant('{app}\extension\INSTALL-EXTENSION.html');
   ExtPath := ExpandConstant('{app}\extension');
   Html :=
-    '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>' +
-    '<title>Downloader — load extension</title>' +
+    '<!DOCTYPE html><html lang="nl"><head><meta charset="utf-8"/>' +
+    '<title>Downloader — extentie laden</title>' +
     '<style>body{font-family:Segoe UI,sans-serif;max-width:42rem;margin:2rem auto;padding:0 1.25rem;line-height:1.5}' +
-    'h1{font-size:1.4rem}.path{font-family:Consolas,monospace;background:#0001;padding:.35rem .55rem;border-radius:4px;word-break:break-all}' +
+    'h1{font-size:1.4rem}h2{font-size:1.15rem;margin-top:1.35rem}.path{font-family:Consolas,monospace;background:#0001;padding:.35rem .55rem;border-radius:4px;word-break:break-all}' +
     'li{margin:.55rem 0}.note{opacity:.85;font-size:.95rem}</style></head><body>' +
-    '<h1>Load the Downloader extension</h1>' +
-    '<p>Browsers do not allow silent extension installs. This is a one-time step (~20 seconds). Chrome, Edge and Firefox all use the <strong>same folder</strong>.</p>' +
+    '<h1>Downloader-extentie laden</h1>' +
+    '<p>Chrome, Edge en Firefox gebruiken <strong>dezelfde map</strong>. Browsers laten extenties niet stilzwijgend installeren — dit is eenmalig (~20 seconden).</p>' +
     '<p><strong>Chrome / Edge</strong></p>' +
     '<ol>' +
-    '<li>Open the extensions page (<code>chrome://extensions</code> or <code>edge://extensions</code>).</li>' +
-    '<li>Turn on <strong>Developer mode</strong> (top right).</li>' +
-    '<li>Click <strong>Load unpacked</strong>.</li>' +
-    '<li>Select this folder:<br/><span class="path">' + ExtPath + '</span></li>' +
+    '<li>Open <code>chrome://extensions</code> of <code>edge://extensions</code>.</li>' +
+    '<li>Zet <strong>Ontwikkelaarsmodus</strong> / Developer mode aan.</li>' +
+    '<li>Klik <strong>Uitgepakte extensie laden</strong> / Load unpacked.</li>' +
+    '<li>Kies deze map:<br/><span class="path">' + ExtPath + '</span></li>' +
     '</ol>' +
-    '<p><strong>Firefox (desktop)</strong></p>' +
+    '<p><strong>Firefox (Windows)</strong></p>' +
     '<ol>' +
     '<li>Open <code>about:debugging#/runtime/this-firefox</code>.</li>' +
-    '<li>Click <strong>Load Temporary Add-on</strong>.</li>' +
-    '<li>Select <code>manifest.json</code> in the same folder:<br/><span class="path">' + ExtPath + '</span></li>' +
+    '<li>Klik <strong>Tijdelijke add-on laden</strong> / Load Temporary Add-on.</li>' +
+    '<li>Kies <code>manifest.json</code> in dezelfde map:<br/><span class="path">' + ExtPath + '</span></li>' +
     '</ol>' +
-    '<p class="note">Firefox temporary add-ons are removed when Firefox restarts. For a permanent install, use Firefox Developer Edition or a signed .xpi from GitHub releases later.</p>' +
-    '<p><strong>Firefox for Android</strong></p>' +
-    '<p class="note">Install the Downloader APK, then in Firefox for Android: Settings → About Firefox → tap the logo 5 times → Add-ons → Install add-on from file (or Debug via about:debugging from desktop). The same extension folder is used; on Android it opens the Downloader app instead of native messaging.</p>' +
-    '<p class="note">Native messaging is already registered by the installer for the browsers you selected.</p>' +
+    '<p class="note">Firefox tijdelijke add-ons verdwijnen na een herstart van Firefox. Native messaging is al door deze installer geregistreerd als je Firefox hebt aangevinkt.</p>' +
+    '<p><strong>Firefox voor Android</strong></p>' +
+    '<p class="note">Installeer de Downloader-APK. Gebruik daarna vanaf de pc: <code>scripts\run-firefox-android.ps1</code> (of web-ext met map <code>extension-firefox-android</code>). Op Android opent <strong>Naar App</strong> de Downloader-app.</p>' +
     '</body></html>';
   ForceDirectories(ExtractFileDir(Dest));
   SaveStringToFile(Dest, Html, False);
@@ -319,7 +351,7 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  ManifestPath, FirefoxManifest: string;
+  ManifestPath, FirefoxManifestPath, FirefoxCopyDir: string;
 begin
   if CurStep = ssPostInstall then
   begin
@@ -329,16 +361,17 @@ begin
     begin
       WriteNativeHostManifest;
       ManifestPath := ExpandConstant('{app}\host\com.downoader.host.json');
+      FirefoxManifestPath := ExpandConstant('{app}\host\com.downoader.host.firefox.json');
       if WantChromeExtension then
         RegisterNativeHostFor('Software\Google\Chrome\NativeMessagingHosts\com.downoader.host', ManifestPath);
       if WantEdgeExtension then
         RegisterNativeHostFor('Software\Microsoft\Edge\NativeMessagingHosts\com.downoader.host', ManifestPath);
       if WantFirefoxExtension then
       begin
-        RegisterNativeHostFor('Software\Mozilla\NativeMessagingHosts\com.downoader.host', ManifestPath);
-        FirefoxManifest := ExpandConstant('{userappdata}\Mozilla\NativeMessagingHosts');
-        ForceDirectories(FirefoxManifest);
-        FileCopy(ManifestPath, FirefoxManifest + '\com.downoader.host.json', False);
+        RegisterNativeHostFor('Software\Mozilla\NativeMessagingHosts\com.downoader.host', FirefoxManifestPath);
+        FirefoxCopyDir := ExpandConstant('{userappdata}\Mozilla\NativeMessagingHosts');
+        ForceDirectories(FirefoxCopyDir);
+        FileCopy(FirefoxManifestPath, FirefoxCopyDir + '\com.downoader.host.json', False);
       end;
     end;
   end;

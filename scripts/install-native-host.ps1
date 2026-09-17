@@ -90,75 +90,80 @@ if (-not $ExtensionId) {
 $id = $ExtensionId.Trim().TrimEnd("/")
 $origin = "chrome-extension://$id/"
 $firefoxId = "downloader@downoader.app"
+$hostPathJson = $HostExe.Replace('\', '\\')
 
 $hostDir = Split-Path -Parent $HostExe
 $manifestPath = Join-Path $hostDir "com.downoader.host.json"
+# Firefox weigert manifests met Chrome's allowed_origins — apart bestand.
+$firefoxManifestPath = Join-Path $hostDir "com.downoader.host.firefox.json"
 
 $json = @"
 {
   "name": "com.downoader.host",
   "description": "Downloader Native Messaging host (yt-dlp)",
-  "path": "$($HostExe.Replace('\', '\\'))",
+  "path": "$hostPathJson",
   "type": "stdio",
   "allowed_origins": [
     "$origin"
-  ],
+  ]
+}
+"@
+[System.IO.File]::WriteAllText($manifestPath, $json)
+Write-Host "Chrome/Edge host-manifest: $manifestPath"
+
+$ffJson = @"
+{
+  "name": "com.downoader.host",
+  "description": "Downloader Native Messaging host (yt-dlp)",
+  "path": "$hostPathJson",
+  "type": "stdio",
   "allowed_extensions": [
     "$firefoxId"
   ]
 }
 "@
-[System.IO.File]::WriteAllText($manifestPath, $json)
-Write-Host "Host-manifest geschreven: $manifestPath"
+[System.IO.File]::WriteAllText($firefoxManifestPath, $ffJson)
+Write-Host "Firefox host-manifest: $firefoxManifestPath"
 
-# Prefs: app_exe + migrate download_dir from legacy folder
+# Prefs: app_exe + migrate download_dir from legacy folder (PowerShell, geen python)
 $prefsDir = Join-Path $env:APPDATA "com.example\Downloader"
 New-Item -ItemType Directory -Force -Path $prefsDir | Out-Null
 $prefsPath = Join-Path $prefsDir "shared_preferences.json"
 $legacyPath = Join-Path $env:APPDATA "com.example\downoader\shared_preferences.json"
-python -c @"
-import json, os
-prefs = {}
-def load(p):
-    if not os.path.exists(p): return {}
-    with open(p, encoding='utf-8-sig') as f: return json.load(f)
-legacy = load(r'$($legacyPath.Replace('\','\\'))')
-current = load(r'$($prefsPath.Replace('\','\\'))')
-prefs.update(legacy)
-prefs.update(current)
-if legacy.get('flutter.download_dir') and not current.get('flutter.download_dir'):
-    prefs['flutter.download_dir'] = legacy['flutter.download_dir']
-app = r'$($AppExe.Replace('\','\\'))'
-if app:
-    prefs['flutter.app_exe'] = app
-with open(r'$($prefsPath.Replace('\','\\'))', 'w', encoding='utf-8') as f:
-    json.dump(prefs, f, indent=2)
-print('prefs ok', prefs.get('flutter.download_dir'), prefs.get('flutter.app_exe'))
-"@
+$prefs = @{}
+foreach ($p in @($legacyPath, $prefsPath)) {
+    if (-not (Test-Path $p)) { continue }
+    try {
+        $obj = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
+        $obj.PSObject.Properties | ForEach-Object {
+            if ($null -ne $_.Value -and "$($_.Value)" -ne "") {
+                $prefs[$_.Name] = $_.Value
+            }
+        }
+    } catch {}
+}
+if ($AppExe) { $prefs["flutter.app_exe"] = $AppExe }
+($prefs | ConvertTo-Json -Depth 8) | Set-Content -Path $prefsPath -Encoding UTF8
+Write-Host "prefs ok $($prefs['flutter.download_dir']) $($prefs['flutter.app_exe'])"
 
-function Register-Host([string]$RegistryPath) {
+function Register-Host([string]$RegistryPath, [string]$ManifestFile) {
     New-Item -Path $RegistryPath -Force | Out-Null
-    New-ItemProperty -Path $RegistryPath -Name "(default)" -Value $manifestPath -PropertyType String -Force | Out-Null
-    Write-Host "Registry: $RegistryPath -> $manifestPath"
+    New-ItemProperty -Path $RegistryPath -Name "(default)" -Value $ManifestFile -PropertyType String -Force | Out-Null
+    Write-Host "Registry: $RegistryPath -> $ManifestFile"
 }
 
-$targets = @()
 if ($Browsers -eq "chrome" -or $Browsers -eq "both" -or $Browsers -eq "all") {
-    $targets += "HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.downoader.host"
+    Register-Host "HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.downoader.host" $manifestPath
 }
 if ($Browsers -eq "edge" -or $Browsers -eq "both" -or $Browsers -eq "all") {
-    $targets += "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\com.downoader.host"
+    Register-Host "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\com.downoader.host" $manifestPath
 }
 if ($Browsers -eq "firefox" -or $Browsers -eq "all") {
-    $targets += "HKCU:\Software\Mozilla\NativeMessagingHosts\com.downoader.host"
+    Register-Host "HKCU:\Software\Mozilla\NativeMessagingHosts\com.downoader.host" $firefoxManifestPath
     $ffDir = Join-Path $env:APPDATA "Mozilla\NativeMessagingHosts"
     New-Item -ItemType Directory -Force -Path $ffDir | Out-Null
-    Copy-Item -Force $manifestPath (Join-Path $ffDir "com.downoader.host.json")
-    Write-Host "Firefox-manifest: $(Join-Path $ffDir 'com.downoader.host.json')"
-}
-
-foreach ($key in $targets) {
-    Register-Host $key
+    Copy-Item -Force $firefoxManifestPath (Join-Path $ffDir "com.downoader.host.json")
+    Write-Host "Firefox-manifest gekopieerd: $(Join-Path $ffDir 'com.downoader.host.json')"
 }
 
 Write-Host ""

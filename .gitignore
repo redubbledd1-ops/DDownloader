@@ -95,6 +95,8 @@ dist/
 # Private key for fixed Chrome extension ID (public key zit in manifest.json)
 installer/extension-key.pem
 
+# Gegenereerde Firefox-Android kopie (zelfde bron als extension/)
+extension-firefox-android/
 
 # Gebundelde binaries (ffmpeg/deno te groot voor GitHub; horen in Setup.exe / Releases)
 Release/tools/

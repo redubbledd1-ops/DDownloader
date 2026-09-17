@@ -44,8 +44,12 @@ function isHostMissingError(e) {
   const m = ((e && e.message) || String(e)).toLowerCase();
   return (
     m.includes("native messaging host") ||
+    m.includes("native application") ||
+    m.includes("no such native") ||
     m.includes("host niet bereikbaar") ||
-    m.includes("verbinding verbroken")
+    m.includes("verbinding verbroken") ||
+    m.includes("access denied") ||
+    m.includes("not found")
   );
 }
 

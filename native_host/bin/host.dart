@@ -459,6 +459,8 @@ void recordDownloadedItem({
   required String format,
   required bool isPlaylist,
   String? url,
+  String? playlistId,
+  int? playlistIndex,
 }) {
   if (path.isEmpty) return;
   final item = {
@@ -466,6 +468,8 @@ void recordDownloadedItem({
     'isPlaylist': isPlaylist,
     'format': format,
     if (url != null && url.isNotEmpty) 'url': url,
+    if (playlistId != null) 'playlistId': playlistId,
+    if (playlistIndex != null) 'playlistIndex': playlistIndex,
     'ts': DateTime.now().millisecondsSinceEpoch,
   };
 
@@ -909,6 +913,10 @@ Future<void> runDownload({
   const lenientUtf8 = Utf8Decoder(allowMalformed: true);
   final recordedPaths = <String>{};
   String? lastPath;
+  final playlistId = isPlaylist
+      ? '${DateTime.now().microsecondsSinceEpoch}'
+      : null;
+  var playlistIndex = 0;
 
   void rememberPath(String? path) {
     if (path == null || path.isEmpty) return;
@@ -919,6 +927,8 @@ Future<void> runDownload({
         format: format == 'mp3' ? 'mp3' : 'mp4',
         isPlaylist: isPlaylist,
         url: url,
+        playlistId: playlistId,
+        playlistIndex: isPlaylist ? playlistIndex++ : null,
       );
     }
   }

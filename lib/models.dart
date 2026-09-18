@@ -159,11 +159,17 @@ class DownloadedItem {
   final String path;
   final bool isPlaylist;
   final OutputFormat format;
+  final String? playlistId;
+  final int? playlistIndex;
+  final int? playlistTotal;
 
   DownloadedItem({
     required this.path,
     required this.isPlaylist,
     required this.format,
+    this.playlistId,
+    this.playlistIndex,
+    this.playlistTotal,
   });
 
   String get fileName => path.split(RegExp(r'[\\/]')).last;
@@ -172,6 +178,9 @@ class DownloadedItem {
     'path': path,
     'isPlaylist': isPlaylist,
     'format': format.name,
+    if (playlistId != null) 'playlistId': playlistId,
+    if (playlistIndex != null) 'playlistIndex': playlistIndex,
+    if (playlistTotal != null) 'playlistTotal': playlistTotal,
   };
 
   factory DownloadedItem.fromJson(Map<String, dynamic> json) => DownloadedItem(
@@ -181,6 +190,9 @@ class DownloadedItem {
       (f) => f.name == json['format'],
       orElse: () => OutputFormat.mp4,
     ),
+    playlistId: json['playlistId'] as String?,
+    playlistIndex: (json['playlistIndex'] as num?)?.toInt(),
+    playlistTotal: (json['playlistTotal'] as num?)?.toInt(),
   );
 }
 

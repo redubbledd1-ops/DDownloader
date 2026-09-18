@@ -357,6 +357,36 @@ class L10n {
     AppLanguage.pt => 'Parte de um download de playlist',
   };
 
+  String playlistProgress(int done, int? total) {
+    final suffix = switch (language) {
+      AppLanguage.nl => 'nummers',
+      AppLanguage.en => 'tracks',
+      AppLanguage.de => 'Titel',
+      AppLanguage.fr => 'titres',
+      AppLanguage.es => 'pistas',
+      AppLanguage.pt => 'faixas',
+    };
+    return total != null ? '$done/$total $suffix' : '$done $suffix';
+  }
+
+  String get expandPlaylistTooltip => switch (language) {
+    AppLanguage.nl => 'Playlist uitklappen',
+    AppLanguage.en => 'Expand playlist',
+    AppLanguage.de => 'Playlist ausklappen',
+    AppLanguage.fr => 'Déplier la playlist',
+    AppLanguage.es => 'Expandir playlist',
+    AppLanguage.pt => 'Expandir playlist',
+  };
+
+  String get collapsePlaylistTooltip => switch (language) {
+    AppLanguage.nl => 'Playlist inklappen',
+    AppLanguage.en => 'Collapse playlist',
+    AppLanguage.de => 'Playlist einklappen',
+    AppLanguage.fr => 'Réduire la playlist',
+    AppLanguage.es => 'Contraer playlist',
+    AppLanguage.pt => 'Recolher playlist',
+  };
+
   String get loadingDownloadDir => switch (language) {
     AppLanguage.nl => 'Downloadmap laden...',
     AppLanguage.en => 'Loading download folder...',

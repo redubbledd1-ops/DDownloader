@@ -149,6 +149,8 @@ class _HomePageState extends State<HomePage> {
   double _progress = 0;
   String _status = '';
   final List<DownloadedItem> _downloaded = [];
+  String? _activePlaylistId;
+  final Set<String> _expandedPlaylistIds = {};
 
   final _searchController = TextEditingController();
   String _searchQuery = '';
@@ -210,6 +212,126 @@ class _HomePageState extends State<HomePage> {
       }
       return true;
     }).toList();
+  }
+
+  // Groepeert playlist-items met dezelfde playlistId tot één rij; alleen
+  // actief zonder filter/zoekopdracht, anders zou het eerste nummer kunnen
+  // wegfilteren terwijl de rest van de groep nog matcht.
+  List<Object> get _displayRows {
+    final items = _filteredDownloaded;
+    final grouped = _fileFilter == FileFilter.all && _searchQuery.isEmpty;
+    if (!grouped) return items;
+
+    final rows = <Object>[];
+    final seenGroups = <String>{};
+    for (final item in items) {
+      final gid = item.playlistId;
+      if (gid == null) {
+        rows.add(item);
+        continue;
+      }
+      if (!seenGroups.add(gid)) continue;
+      final groupItems = items.where((i) => i.playlistId == gid).toList()
+        ..sort(
+          (a, b) => (a.playlistIndex ?? 0).compareTo(b.playlistIndex ?? 0),
+        );
+      rows.add(_PlaylistGroupRow(gid, groupItems));
+    }
+    return rows;
+  }
+
+  Widget _buildDownloadedTile(DownloadedItem item, {bool indented = false}) {
+    return ListTile(
+      contentPadding: indented
+          ? const EdgeInsets.only(left: 32, right: 16)
+          : null,
+      leading: Icon(
+        item.isPlaylist
+            ? Icons.playlist_play
+            : (item.format == OutputFormat.mp3
+                  ? Icons.audiotrack
+                  : Icons.movie_outlined),
+      ),
+      title: Text(item.fileName),
+      subtitle: item.isPlaylist && item.playlistId == null
+          ? Text(t.partOfPlaylist)
+          : null,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.folder_open, size: 18),
+            tooltip: t.openFolderTooltip,
+            onPressed: () => _openItemFolder(item.path),
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, size: 18),
+            tooltip: t.deleteTooltip,
+            onPressed: () => _deleteItem(item),
+          ),
+        ],
+      ),
+      onTap: () => _openFile(item.path),
+    );
+  }
+
+  Widget _buildPlaylistGroupTile(_PlaylistGroupRow group) {
+    final head = group.items.first;
+    final expanded = _expandedPlaylistIds.contains(group.id);
+    final downloading = group.id == _activePlaylistId;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ListTile(
+          leading: downloading
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.playlist_play),
+          title: Text(head.fileName),
+          subtitle: Text(
+            t.playlistProgress(group.items.length, head.playlistTotal),
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.folder_open, size: 18),
+                tooltip: t.openFolderTooltip,
+                onPressed: () => _openItemFolder(head.path),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline, size: 18),
+                tooltip: t.deleteTooltip,
+                onPressed: () => _deleteItem(head),
+              ),
+              IconButton(
+                icon: Icon(
+                  expanded ? Icons.expand_less : Icons.expand_more,
+                  size: 18,
+                ),
+                tooltip: expanded
+                    ? t.collapsePlaylistTooltip
+                    : t.expandPlaylistTooltip,
+                onPressed: () => setState(() {
+                  if (expanded) {
+                    _expandedPlaylistIds.remove(group.id);
+                  } else {
+                    _expandedPlaylistIds.add(group.id);
+                  }
+                }),
+              ),
+            ],
+          ),
+          onTap: () => _openFile(head.path),
+        ),
+        if (expanded)
+          for (final item in group.items.skip(1))
+            _buildDownloadedTile(item, indented: true),
+      ],
+    );
   }
 
   @override
@@ -313,6 +435,9 @@ class _HomePageState extends State<HomePage> {
       path: job['path']?.toString() ?? '',
       isPlaylist: job['isPlaylist'] == true,
       format: formatMatch.isNotEmpty ? formatMatch.first : OutputFormat.mp4,
+      playlistId: job['playlistId']?.toString(),
+      playlistIndex: (job['playlistIndex'] as num?)?.toInt(),
+      playlistTotal: (job['playlistTotal'] as num?)?.toInt(),
     );
   }
 
@@ -661,7 +786,14 @@ class _HomePageState extends State<HomePage> {
       _status = 'Downloaden...';
     });
 
-    bool firstFileSeen = false;
+    final playlistId = isPlaylist
+        ? DateTime.now().microsecondsSinceEpoch.toString()
+        : null;
+    final playlistTotal = isPlaylist ? probe.entryCount : null;
+    if (playlistId != null) {
+      setState(() => _activePlaylistId = playlistId);
+    }
+    var playlistIndex = 0;
     try {
       await for (final event in _service.download(
         url: url,
@@ -674,20 +806,21 @@ class _HomePageState extends State<HomePage> {
         if (event is ProgressEvent) {
           setState(() => _progress = event.percent / 100);
         } else if (event is FileDownloadedEvent) {
-          if (!isPlaylist || !firstFileSeen) {
-            firstFileSeen = true;
-            final downloadedItem = DownloadedItem(
-              path: event.path,
-              isPlaylist: isPlaylist,
-              format: _format,
-            );
-            setState(() {
-              _downloaded.insert(0, downloadedItem);
-            });
-            Settings.setDownloadedItems(_downloaded);
-            Settings.addDownloadHistoryItem(downloadedItem);
-            Settings.addFolderHistory(p.dirname(event.path));
-          }
+          final downloadedItem = DownloadedItem(
+            path: event.path,
+            isPlaylist: isPlaylist,
+            format: _format,
+            playlistId: playlistId,
+            playlistIndex: isPlaylist ? playlistIndex : null,
+            playlistTotal: playlistTotal,
+          );
+          playlistIndex++;
+          setState(() {
+            _downloaded.insert(0, downloadedItem);
+          });
+          Settings.setDownloadedItems(_downloaded);
+          Settings.addDownloadHistoryItem(downloadedItem);
+          Settings.addFolderHistory(p.dirname(event.path));
         } else if (event is StatusEvent) {
           setState(() => _status = event.message);
         } else if (event is LogEvent) {
@@ -710,6 +843,7 @@ class _HomePageState extends State<HomePage> {
       _busy = false;
       _progress = 0;
       _status = '';
+      if (_activePlaylistId == playlistId) _activePlaylistId = null;
     });
   }
 
@@ -1131,7 +1265,7 @@ class _HomePageState extends State<HomePage> {
               Expanded(
                 child: Builder(
                   builder: (context) {
-                    final items = _filteredDownloaded;
+                    final rows = _displayRows;
                     if (_downloaded.isEmpty) {
                       return Center(
                         child: Text(
@@ -1140,7 +1274,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                       );
                     }
-                    if (items.isEmpty) {
+                    if (rows.isEmpty) {
                       return Center(
                         child: Text(
                           t.noResults,
@@ -1149,38 +1283,13 @@ class _HomePageState extends State<HomePage> {
                       );
                     }
                     return ListView.builder(
-                      itemCount: items.length,
+                      itemCount: rows.length,
                       itemBuilder: (_, i) {
-                        final item = items[i];
-                        return ListTile(
-                          leading: Icon(
-                            item.isPlaylist
-                                ? Icons.playlist_play
-                                : (item.format == OutputFormat.mp3
-                                      ? Icons.audiotrack
-                                      : Icons.movie_outlined),
-                          ),
-                          title: Text(item.fileName),
-                          subtitle: item.isPlaylist
-                              ? Text(t.partOfPlaylist)
-                              : null,
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.folder_open, size: 18),
-                                tooltip: t.openFolderTooltip,
-                                onPressed: () => _openItemFolder(item.path),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline, size: 18),
-                                tooltip: t.deleteTooltip,
-                                onPressed: () => _deleteItem(item),
-                              ),
-                            ],
-                          ),
-                          onTap: () => _openFile(item.path),
-                        );
+                        final row = rows[i];
+                        if (row is _PlaylistGroupRow) {
+                          return _buildPlaylistGroupTile(row);
+                        }
+                        return _buildDownloadedTile(row as DownloadedItem);
                       },
                     );
                   },
@@ -1193,6 +1302,12 @@ class _HomePageState extends State<HomePage> {
     ),
     );
   }
+}
+
+class _PlaylistGroupRow {
+  final String id;
+  final List<DownloadedItem> items;
+  _PlaylistGroupRow(this.id, this.items);
 }
 
 class _AppBarTitle extends StatelessWidget {

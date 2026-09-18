@@ -343,32 +343,40 @@ File completedLogFile() =>
 
 T withFileLock<T>(File lockFile, T Function() fn) {
   lockFile.parent.createSync(recursive: true);
-  RandomAccessFile? raf;
+  // Geen OS FileLock — op Windows kan lockSync eindeloos blokkeren en de
+  // Flutter-app (die dezelfde inbox leest) laten vastlopen. Lockfile + stale.
+  var acquired = false;
   for (var i = 0; i < 40; i++) {
     try {
-      raf = lockFile.openSync(mode: FileMode.write);
-      raf.lockSync(FileLock.exclusive);
+      if (lockFile.existsSync()) {
+        final age = DateTime.now().difference(lockFile.lastModifiedSync());
+        if (age > const Duration(seconds: 3)) {
+          try {
+            lockFile.deleteSync();
+          } catch (_) {}
+        } else {
+          sleep(const Duration(milliseconds: 30));
+          continue;
+        }
+      }
+      lockFile.writeAsStringSync(
+        '${pid}:${DateTime.now().millisecondsSinceEpoch}',
+        flush: true,
+      );
+      acquired = true;
       break;
     } catch (_) {
-      try {
-        raf?.closeSync();
-      } catch (_) {}
-      raf = null;
-      sleep(const Duration(milliseconds: 25));
+      sleep(const Duration(milliseconds: 30));
     }
   }
   try {
     return fn();
   } finally {
-    try {
-      raf?.unlockSync();
-    } catch (_) {}
-    try {
-      raf?.closeSync();
-    } catch (_) {}
-    try {
-      lockFile.deleteSync();
-    } catch (_) {}
+    if (acquired) {
+      try {
+        lockFile.deleteSync();
+      } catch (_) {}
+    }
   }
 }
 
@@ -471,7 +479,12 @@ void recordDownloadedItem({
   try {
     final log = completedLogFile();
     log.parent.createSync(recursive: true);
-    log.writeAsStringSync('${jsonEncode(item)}\n', mode: FileMode.append, flush: true);
+    // Expliciet UTF-8: titels met emoji mogen de jsonl niet corrupt maken.
+    log.writeAsBytesSync(
+      utf8.encode('${jsonEncode(item)}\n'),
+      mode: FileMode.append,
+      flush: true,
+    );
   } catch (_) {}
 
   try {
@@ -486,9 +499,10 @@ Future<Map<String, dynamic>> readSettings() async {
   final raw = loadPrefsRaw();
   final profile = Platform.environment['USERPROFILE'] ?? 'C:\\';
   final downloadDir = raw[prefsKeyDownloadDir]?.toString();
+  final defaultDownloads = '$profile\\Downloads';
   return {
     'downloadDir': (downloadDir == null || downloadDir.isEmpty)
-        ? '$profile\\Downloads'
+        ? defaultDownloads
         : downloadDir,
     'darkMode': raw[prefsKeyDarkMode] == true,
     'playlistMode': raw[prefsKeyPlaylistMode]?.toString() ?? 'ask',

@@ -23,11 +23,12 @@ class MainActivity : FlutterActivity() {
     // progressive 360p (format 18). default+tv_simply geeft weer alle
     // resoluties (tot 4K). NIET android_vr forceren: die eist inmiddels ook
     // GVS PO-token → HTTP 403.
-    private val speedOptions = listOf(
-        "--extractor-args",
-        "youtube:player_client=default,tv_simply",
+    private val playerClientArgs = listOf(
+        "--extractor-args" to "youtube:player_client=default,tv_simply",
     )
-    private val concurrencyOptions = listOf("--concurrent-fragments", "4")
+    private val concurrencyArgs = listOf(
+        "--concurrent-fragments" to "4",
+    )
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -47,16 +48,56 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "init" -> handleInit(result)
-                    "probe" -> handleQuery(call.argument("url")!!, listOf("--flat-playlist", "-J") + speedOptions, result)
-                    "formats" -> handleQuery(call.argument("url")!!, listOf("--no-playlist", "-J") + speedOptions, result)
+                    "probe" -> {
+                        val url = call.argument<String>("url")
+                        if (url.isNullOrBlank()) {
+                            result.error("YTDLP_ERROR", "URL ontbreekt", null)
+                        } else {
+                            handleQuery(
+                                url,
+                                listOf("--flat-playlist" to null, "-J" to null) + playerClientArgs,
+                                result,
+                            )
+                        }
+                    }
+                    "formats" -> {
+                        val url = call.argument<String>("url")
+                        if (url.isNullOrBlank()) {
+                            result.error("YTDLP_ERROR", "URL ontbreekt", null)
+                        } else {
+                            handleQuery(
+                                url,
+                                listOf("--no-playlist" to null, "-J" to null) + playerClientArgs,
+                                result,
+                            )
+                        }
+                    }
                     "download" -> handleDownload(call, result)
                     "openFile" -> {
-                        openFile(call.argument("path")!!)
-                        result.success(null)
+                        val path = call.argument<String>("path")
+                        if (path.isNullOrBlank()) {
+                            result.error("OPEN_FAILED", "Pad ontbreekt", null)
+                        } else {
+                            try {
+                                openFile(path)
+                                result.success(null)
+                            } catch (e: Exception) {
+                                result.error("OPEN_FAILED", e.message, null)
+                            }
+                        }
                     }
                     "openFolder" -> {
-                        openFolder(call.argument("path")!!)
-                        result.success(null)
+                        val path = call.argument<String>("path")
+                        if (path.isNullOrBlank()) {
+                            result.error("OPEN_FAILED", "Pad ontbreekt", null)
+                        } else {
+                            try {
+                                openFolder(path)
+                                result.success(null)
+                            } catch (e: Exception) {
+                                result.error("OPEN_FAILED", e.message, null)
+                            }
+                        }
                     }
                     else -> result.notImplemented()
                 }
@@ -113,6 +154,14 @@ class MainActivity : FlutterActivity() {
         return null
     }
 
+    private fun YoutubeDLRequest.addOpt(option: String, value: String?) {
+        if (value == null) {
+            addOption(option)
+        } else {
+            addOption(option, value)
+        }
+    }
+
     private fun handleInit(result: MethodChannel.Result) {
         Thread {
             try {
@@ -132,35 +181,48 @@ class MainActivity : FlutterActivity() {
         }.start()
     }
 
-    private fun handleQuery(url: String, options: List<String>, result: MethodChannel.Result) {
+    private fun handleQuery(
+        url: String,
+        options: List<Pair<String, String?>>,
+        result: MethodChannel.Result,
+    ) {
         Thread {
             try {
                 val request = YoutubeDLRequest(url)
-                options.forEach { request.addOption(it) }
+                options.forEach { (opt, value) -> request.addOpt(opt, value) }
                 val response = YoutubeDL.getInstance().execute(request, null, null)
                 runOnUiThread { result.success(response.out) }
             } catch (e: Exception) {
-                runOnUiThread { result.error("YTDLP_ERROR", e.message ?: "onbekende fout", null) }
+                runOnUiThread {
+                    result.error("YTDLP_ERROR", e.message ?: "onbekende fout", null)
+                }
             }
         }.start()
     }
 
     private fun handleDownload(call: io.flutter.plugin.common.MethodCall, result: MethodChannel.Result) {
-        val url: String = call.argument("url")!!
-        val outputDir: String = call.argument("outputDir")!!
+        val url = call.argument<String>("url")
+        val outputDir = call.argument<String>("outputDir")
+        val format = call.argument<String>("format")
+        if (url.isNullOrBlank() || outputDir.isNullOrBlank() || format.isNullOrBlank()) {
+            result.error("DOWNLOAD_FAILED", "url/outputDir/format ontbreekt", null)
+            return
+        }
         val isPlaylist: Boolean = call.argument("isPlaylist") ?: false
-        val format: String = call.argument("format")!!
         val formatId: String? = call.argument("formatId")
 
         Thread {
             try {
+                File(outputDir).mkdirs()
                 val request = YoutubeDLRequest(url)
                 request.addOption("-o", "$outputDir/%(title)s.%(ext)s")
                 request.addOption("--newline")
                 request.addOption("--no-mtime")
                 request.addOption("--print", "after_move:FILEPATH::%(filepath)s")
                 request.addOption(if (isPlaylist) "--yes-playlist" else "--no-playlist")
-                (speedOptions + concurrencyOptions).forEach { request.addOption(it) }
+                (playerClientArgs + concurrencyArgs).forEach { (opt, value) ->
+                    request.addOpt(opt, value)
+                }
                 if (format == "mp3") {
                     request.addOption("-x")
                     request.addOption("--audio-format", "mp3")
@@ -172,12 +234,19 @@ class MainActivity : FlutterActivity() {
 
                 YoutubeDL.getInstance().execute(request, null) { progress, _, line ->
                     runOnUiThread {
-                        eventSink?.success(mapOf("progress" to progress.toDouble(), "line" to (line ?: "")))
+                        eventSink?.success(
+                            mapOf(
+                                "progress" to progress.toDouble(),
+                                "line" to (line ?: ""),
+                            ),
+                        )
                     }
                 }
                 runOnUiThread { result.success(null) }
             } catch (e: Exception) {
-                runOnUiThread { result.error("DOWNLOAD_FAILED", e.message ?: "onbekende fout", null) }
+                runOnUiThread {
+                    result.error("DOWNLOAD_FAILED", e.message ?: "onbekende fout", null)
+                }
             }
         }.start()
     }

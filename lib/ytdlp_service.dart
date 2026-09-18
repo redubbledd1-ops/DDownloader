@@ -161,6 +161,14 @@ class YtDlpService {
   // Volgorde: tools naast de geïnstalleerde exe → APPDATA → legacy pad →
   // eenmalig downloaden naar APPDATA (alleen als niets gebundeld is, bv. dev).
   Future<String> ensureYtDlp({void Function(String)? onLog}) async {
+    if (Platform.isAndroid) {
+      // Android draait via youtubedl-android (MethodChannel), geen .exe.
+      if (!_androidReady) {
+        await _androidChannel.invokeMethod('init');
+        _androidReady = true;
+      }
+      return 'android';
+    }
     if (_resolvedYtDlpPath != null) return _resolvedYtDlpPath!;
 
     final supportDir = await getApplicationSupportDirectory();
@@ -327,6 +335,7 @@ class YtDlpService {
   // staat downloaden we eenmalig een portable build naar de app-datamap
   // (zelfde patroon als ensureFfmpeg hierboven).
   Future<List<String>> _ensureJsRuntimeArgs({void Function(String)? onLog}) async {
+    if (Platform.isAndroid) return [];
     if (_jsRuntimeChecked) {
       return _jsRuntimeArg == null ? [] : ['--js-runtimes', _jsRuntimeArg!];
     }

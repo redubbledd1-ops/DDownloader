@@ -9,6 +9,40 @@ FlutterWindow::FlutterWindow(const flutter::DartProject& project)
 
 FlutterWindow::~FlutterWindow() {}
 
+void FlutterWindow::RegisterWindowChannel() {
+  if (!flutter_controller_ || !flutter_controller_->engine()) {
+    return;
+  }
+  window_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "downoader/window",
+          &flutter::StandardMethodCodec::GetInstance());
+
+  window_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) {
+        const auto& method = call.method_name();
+        if (method == "isActive") {
+          HWND self = GetHandle();
+          HWND fg = GetForegroundWindow();
+          result->Success(flutter::EncodableValue(self != nullptr && fg == self));
+        } else if (method == "beginBackgroundUpdate") {
+          suppress_activation_ = true;
+          // Voorkom dat deze process de voorgrond steelt tijdens setState.
+          // LSF_LOCK=1 / LSF_UNLOCK=2 (winuser.h; niet altijd zichtbaar hier).
+          LockSetForegroundWindow(1);
+          result->Success(nullptr);
+        } else if (method == "endBackgroundUpdate") {
+          suppress_activation_ = false;
+          LockSetForegroundWindow(2);
+          result->Success(nullptr);
+        } else {
+          result->NotImplemented();
+        }
+      });
+}
+
 bool FlutterWindow::OnCreate() {
   if (!Win32Window::OnCreate()) {
     return false;
@@ -26,6 +60,7 @@ bool FlutterWindow::OnCreate() {
   }
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
+  RegisterWindowChannel();
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
@@ -40,6 +75,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  window_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -51,6 +87,17 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  // During background list updates, don't let the window take focus.
+  if (suppress_activation_) {
+    if (message == WM_MOUSEACTIVATE) {
+      return MA_NOACTIVATE;
+    }
+    if (message == WM_ACTIVATE || message == WM_SETFOCUS ||
+        message == WM_CHILDACTIVATE) {
+      return 0;
+    }
+  }
+
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =

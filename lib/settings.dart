@@ -53,32 +53,44 @@ class Settings {
   static Future<T> _withInboxLock<T>(Future<T> Function() fn) async {
     final lockFile = await extensionInboxLockFile();
     await lockFile.parent.create(recursive: true);
-    RandomAccessFile? raf;
+    // Geen OS FileLock (kan op Windows eindeloos blokkeren). Simpele
+    // lockfile-mutex met stale-timeout i.p.v. flock.
+    var acquired = false;
     for (var i = 0; i < 40; i++) {
       try {
-        raf = await lockFile.open(mode: FileMode.write);
-        await raf.lock(FileLock.exclusive);
+        if (await lockFile.exists()) {
+          final age = DateTime.now().difference(await lockFile.lastModified());
+          if (age > const Duration(seconds: 3)) {
+            try {
+              await lockFile.delete();
+            } catch (_) {}
+          } else {
+            await Future.delayed(const Duration(milliseconds: 30));
+            continue;
+          }
+        }
+        final raf = await lockFile.open(mode: FileMode.write);
+        try {
+          await raf.writeString(
+            '${pid}:${DateTime.now().millisecondsSinceEpoch}',
+          );
+        } finally {
+          await raf.close();
+        }
+        acquired = true;
         break;
       } catch (_) {
-        try {
-          await raf?.close();
-        } catch (_) {}
-        raf = null;
-        await Future.delayed(const Duration(milliseconds: 25));
+        await Future.delayed(const Duration(milliseconds: 30));
       }
     }
     try {
       return await fn();
     } finally {
-      try {
-        await raf?.unlock();
-      } catch (_) {}
-      try {
-        await raf?.close();
-      } catch (_) {}
-      try {
-        await lockFile.delete();
-      } catch (_) {}
+      if (acquired) {
+        try {
+          await lockFile.delete();
+        } catch (_) {}
+      }
     }
   }
 
@@ -94,12 +106,33 @@ class Settings {
       }
     }
     if (saved != null && saved.isNotEmpty) return saved;
+
+    final fallback = await _defaultDownloadDir();
+    // Eerste start: standaard meteen vastleggen.
+    await prefs.setString(_keyDownloadDir, fallback);
+    return fallback;
+  }
+
+  /// Standaard downloadmap: Windows/macOS/Linux = systeem-Downloads,
+  /// Android = app-specifieke Download/Downoader-map.
+  static Future<String> _defaultDownloadDir() async {
     if (Platform.isAndroid) {
       final dir = await getExternalStorageDirectory();
       return p.join(dir!.path, 'Download', 'Downoader');
     }
-    final userProfile = Platform.environment['USERPROFILE'] ?? 'C:\\';
-    return '$userProfile\\Downloads';
+    try {
+      final downloads = await getDownloadsDirectory();
+      if (downloads != null && downloads.path.isNotEmpty) {
+        return downloads.path;
+      }
+    } catch (_) {}
+    final userProfile = Platform.environment['USERPROFILE'] ??
+        Platform.environment['HOME'] ??
+        '';
+    if (userProfile.isNotEmpty) {
+      return p.join(userProfile, 'Downloads');
+    }
+    return p.join(Directory.current.path, 'Downloads');
   }
 
   static Future<String?> _readLegacyDownloadDir() async {
@@ -384,6 +417,38 @@ class Settings {
 
   static const _keyCompletedOffset = 'extension_completed_offset';
 
+  static Future<File> extensionCompletedOffsetFile() async {
+    final dir = await appDataDir();
+    return File(p.join(dir.path, 'extension_completed.offset'));
+  }
+
+  /// Offset in eigen bestandje — niet in SharedPreferences, anders kan de
+  /// native host (die prefs ook schrijft) de poller laten vastlopen.
+  static Future<int> _readCompletedOffset() async {
+    final file = await extensionCompletedOffsetFile();
+    if (await file.exists()) {
+      try {
+        return int.parse((await file.readAsString()).trim());
+      } catch (_) {}
+    }
+    // Eenmalig migreren vanaf oude prefs-key.
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final legacy = prefs.getInt(_keyCompletedOffset);
+      if (legacy != null) {
+        await _writeCompletedOffset(legacy);
+        return legacy;
+      }
+    } catch (_) {}
+    return 0;
+  }
+
+  static Future<void> _writeCompletedOffset(int offset) async {
+    final file = await extensionCompletedOffsetFile();
+    await file.parent.create(recursive: true);
+    await file.writeAsString('$offset', flush: true);
+  }
+
   /// Nieuwe regels uit de append-only jsonl van de native host (directe
   /// extentie-downloads). Offset wordt pas door de caller bevestigd.
   static Future<({List<DownloadedItem> items, int offset})>
@@ -391,8 +456,7 @@ class Settings {
     if (!Platform.isWindows) return (items: <DownloadedItem>[], offset: 0);
     final file = await extensionCompletedFile();
     if (!await file.exists()) return (items: <DownloadedItem>[], offset: 0);
-    final prefs = await SharedPreferences.getInstance();
-    var offset = prefs.getInt(_keyCompletedOffset) ?? 0;
+    var offset = await _readCompletedOffset();
     final length = await file.length();
     if (offset > length) offset = 0;
     if (offset >= length) {
@@ -422,7 +486,6 @@ class Settings {
   }
 
   static Future<void> markExtensionCompletedOffset(int offset) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_keyCompletedOffset, offset);
+    await _writeCompletedOffset(offset);
   }
 }

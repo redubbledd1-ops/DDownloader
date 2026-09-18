@@ -279,6 +279,8 @@ begin
   AppExe := ExpandConstant('{app}\{#MyAppExeName}');
   DownloadDir := Trim(DownloadDirPage.Values[0]);
   if DownloadDir = '' then
+    DownloadDir := GetEnv('USERPROFILE') + '\Downloads';
+  if DownloadDir = '\Downloads' then
     DownloadDir := ExpandConstant('{userdocs}\Downloads');
   ForceDirectories(DownloadDir);
 

@@ -11,6 +11,7 @@ import 'models.dart';
 import 'settings.dart';
 import 'settings_page.dart';
 import 'theme.dart';
+import 'window_bridge.dart';
 import 'ytdlp_service.dart';
 
 const _intentChannel = MethodChannel('downoader/intent');
@@ -158,8 +159,11 @@ class _HomePageState extends State<HomePage> {
   final ValueNotifier<int> _logsTick = ValueNotifier(0);
   bool _showLogs = false;
   Timer? _inboxTimer;
+  Timer? _completedTimer;
+  StreamSubscription<FileSystemEvent>? _completedWatch;
   String? _pendingFormatId;
   bool _inboxPolling = false;
+  bool _completedMerging = false;
 
   L10n get t => L10n(widget.language);
 
@@ -210,12 +214,27 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    // Extentie-sync meteen starten — niet wachten op prefs-loads die op
+    // Windows soms blokkeren; anders blijven downloads onzichtbaar tot restart.
+    if (Platform.isWindows) {
+      _completedTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+        _mergeExtensionDownloads();
+      });
+      _inboxTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        _pollExtensionInbox();
+      });
+      _startCompletedFileWatch();
+      unawaited(_mergeExtensionDownloads());
+      unawaited(_pollExtensionInbox());
+    }
     _bootstrap();
   }
 
   @override
   void dispose() {
     _inboxTimer?.cancel();
+    _completedTimer?.cancel();
+    _completedWatch?.cancel();
     _urlController.dispose();
     _searchController.dispose();
     _logsTick.dispose();
@@ -247,12 +266,6 @@ class _HomePageState extends State<HomePage> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _startDownload(formatIdOverride: _pendingFormatId);
       });
-    }
-    if (Platform.isWindows) {
-      _inboxTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        _pollExtensionInbox();
-      });
-      await _pollExtensionInbox();
     }
     if (Platform.isAndroid) {
       _listenAndroidIntents();
@@ -302,27 +315,61 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Future<void> _startCompletedFileWatch() async {
+    try {
+      final file = await Settings.extensionCompletedFile();
+      await file.parent.create(recursive: true);
+      if (!await file.exists()) {
+        await file.writeAsString('');
+      }
+      await _completedWatch?.cancel();
+      // Directe melding zodra de host een regel append — sneller dan alleen pollen.
+      _completedWatch = file.watch(events: FileSystemEvent.modify).listen((_) {
+        _mergeExtensionDownloads();
+        _pollExtensionInbox();
+      }, onError: (_) {});
+    } catch (e) {
+      _addLog('Extentie file-watch niet gestart: $e');
+    }
+  }
+
   Future<void> _rememberDownloadedItem(DownloadedItem item) async {
     if (!mounted || item.path.isEmpty) return;
     if (_downloaded.any((i) => i.path == item.path)) return;
-    setState(() => _downloaded.insert(0, item));
-    await Settings.setDownloadedItems(_downloaded);
-    await Settings.addDownloadHistoryItem(item);
-    await Settings.addFolderHistory(p.dirname(item.path));
-    _addLog('Extentie: bestand gedownload (${item.path})');
+    // UI bijwerken zonder de app naar voren te trekken (Windows focus-steal).
+    await WindowBridge.withoutStealingFocus(() async {
+      if (!mounted) return;
+      if (_downloaded.any((i) => i.path == item.path)) return;
+      setState(() => _downloaded.insert(0, item));
+      _addLog('Extentie: bestand gedownload (${item.path})');
+    });
+    final snapshot = List<DownloadedItem>.of(_downloaded);
+    unawaited(Future(() async {
+      try {
+        await Settings.setDownloadedItems(snapshot);
+        await Settings.addDownloadHistoryItem(item);
+        await Settings.addFolderHistory(p.dirname(item.path));
+      } catch (e) {
+        if (mounted) _addLog('Extentie: lijst opslaan mislukt ($e)');
+      }
+    }));
   }
 
   Future<void> _mergeExtensionDownloads() async {
-    final batch = await Settings.readExtensionCompleted();
-    for (final item in batch.items) {
-      await _rememberDownloadedItem(item);
-    }
-    if (batch.items.isNotEmpty) {
-      await Settings.markExtensionCompletedOffset(batch.offset);
-    }
-    final fromPrefs = await Settings.getDownloadedItems(reload: true);
-    for (final item in fromPrefs) {
-      await _rememberDownloadedItem(item);
+    if (!mounted || !Platform.isWindows || _completedMerging) return;
+    _completedMerging = true;
+    try {
+      final batch = await Settings.readExtensionCompleted();
+      for (final item in batch.items) {
+        await _rememberDownloadedItem(item);
+      }
+      if (batch.items.isNotEmpty) {
+        await Settings.markExtensionCompletedOffset(batch.offset);
+      }
+    } catch (e) {
+      _addLog('Extentie-merge fout: $e');
+    } finally {
+      _completedMerging = false;
     }
   }
 
@@ -369,8 +416,8 @@ class _HomePageState extends State<HomePage> {
   Future<void> _pollExtensionInbox() async {
     if (!mounted || _inboxPolling) return;
     _inboxPolling = true;
+    final deferredUrls = <Map<String, dynamic>>[];
     try {
-      await _mergeExtensionDownloads();
       while (mounted) {
         final job = await Settings.takeExtensionInbox();
         if (job == null) break;
@@ -392,31 +439,40 @@ class _HomePageState extends State<HomePage> {
 
         final url = job['url']?.toString() ?? '';
         if (url.isEmpty) continue;
+
+        // URL-jobs uitstellen i.p.v. de wachtrij te stoppen — anders blijven
+        // latere "downloaded"-meldingen hangen tot een herstart.
         if (_busy) {
-          await Settings.prependExtensionInbox(job);
-          break;
+          deferredUrls.add(job);
+          continue;
         }
 
-        final formatName = job['format']?.toString();
-        final formatId = job['formatId']?.toString();
         setState(() {
           _urlController.text = url;
+          final formatName = job['format']?.toString();
           if (formatName != null) {
             final match = OutputFormat.values.where((e) => e.name == formatName);
             if (match.isNotEmpty) _format = match.first;
           }
         });
+        final formatName = job['format']?.toString();
         if (formatName != null) {
           final match = OutputFormat.values.where((e) => e.name == formatName);
           if (match.isNotEmpty) await Settings.setDefaultFormat(match.first);
         }
+        final formatId = job['formatId']?.toString();
         _addLog('Extentie: download gestart voor $url');
-        // Niet awaiten: anders merget de poller geen directe
-        // extentie-downloads zolang deze app-download loopt.
         _startDownload(formatIdOverride: formatId);
         break;
       }
+    } catch (e) {
+      _addLog('Extentie-inbox fout: $e');
     } finally {
+      for (final job in deferredUrls.reversed) {
+        try {
+          await Settings.prependExtensionInbox(job);
+        } catch (_) {}
+      }
       _inboxPolling = false;
     }
   }
@@ -485,6 +541,7 @@ class _HomePageState extends State<HomePage> {
 
     setState(() => _busy = true);
     try {
+      // Android: initialiseert youtubedl-android. Desktop: yt-dlp.exe.
       await _service.ensureYtDlp(onLog: _addLog);
     } catch (e) {
       setState(() => _busy = false);
@@ -493,16 +550,25 @@ class _HomePageState extends State<HomePage> {
       return;
     }
     String? ffmpegDir;
-    try {
-      ffmpegDir = await _service.ensureFfmpeg(onLog: _addLog);
-    } catch (e) {
-      setState(() => _busy = false);
-      _addLog('FOUT: $e');
-      _showError(t.errInstallFfmpeg('$e'));
-      return;
+    if (!Platform.isAndroid) {
+      try {
+        ffmpegDir = await _service.ensureFfmpeg(onLog: _addLog);
+      } catch (e) {
+        setState(() => _busy = false);
+        _addLog('FOUT: $e');
+        _showError(t.errInstallFfmpeg('$e'));
+        return;
+      }
     }
 
-    await Directory(_downloadDir).create(recursive: true);
+    try {
+      await Directory(_downloadDir).create(recursive: true);
+    } catch (e) {
+      setState(() => _busy = false);
+      _addLog('FOUT: map aanmaken mislukt: $e');
+      _showError(t.downloadFailed('$e'));
+      return;
+    }
 
     setState(() {
       _busy = true;

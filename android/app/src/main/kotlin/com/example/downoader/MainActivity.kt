@@ -134,15 +134,11 @@ class MainActivity : FlutterActivity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        // Root-back mag de activity niet finishen: dat oogt als minimaliseren
-        // + herstart bij terugkomen. Flutter PopScope houdt de route vast;
-        // als de engine toch finish wil, houden we de taak op de voorgrond.
-        val dispatcher = onBackPressedDispatcher
-        if (dispatcher.hasEnabledCallbacks()) {
-            super.onBackPressed()
-            return
-        }
-        // Geen Flutter-callback: blijf in de app (Home-knop mag wél weg).
+        // FlutterActivity is een plain Activity (geen ComponentActivity), dus
+        // geen onBackPressedDispatcher beschikbaar. super.onBackPressed()
+        // delegeert al naar de Flutter-engine, die zelf via PopScope beslist
+        // of de route pop't — geen eigen finish-logica nodig.
+        super.onBackPressed()
     }
 
     override fun finish() {

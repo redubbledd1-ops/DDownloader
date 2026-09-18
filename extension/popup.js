@@ -21,6 +21,40 @@ const audioOnlyEl = document.getElementById("audioOnly");
 const directDownloadEnabledEl = document.getElementById("directDownloadEnabled");
 const statusEl = document.getElementById("status");
 const progressEl = document.getElementById("progress");
+const debugLogEl = document.getElementById("debugLog");
+const debugRedetectBtn = document.getElementById("debugRedetect");
+const debugCopyBtn = document.getElementById("debugCopy");
+const debugClearBtn = document.getElementById("debugClear");
+
+const debugLines = [];
+
+function debugTs() {
+  return new Date().toISOString().slice(11, 23);
+}
+
+function debugLog(message, detail) {
+  let line = `[${debugTs()}] ${message}`;
+  if (detail !== undefined) {
+    try {
+      const extra =
+        typeof detail === "string" ? detail : JSON.stringify(detail, null, 2);
+      line += "\n" + extra;
+    } catch (_) {
+      line += "\n" + String(detail);
+    }
+  }
+  debugLines.push(line);
+  if (debugLines.length > 200) debugLines.splice(0, debugLines.length - 200);
+  if (debugLogEl) {
+    debugLogEl.textContent = debugLines.join("\n\n");
+    debugLogEl.scrollTop = debugLogEl.scrollHeight;
+  }
+}
+
+function debugClear() {
+  debugLines.length = 0;
+  if (debugLogEl) debugLogEl.textContent = "";
+}
 
 /** @type {Array<{formatId:string,label:string,ext:string,hasAudio:boolean,filesize?:number}>} */
 let formats = [];
@@ -36,6 +70,7 @@ function setStatus(text, kind = "") {
   statusEl.hidden = !text;
   statusEl.textContent = text || "";
   statusEl.className = "status" + (kind ? ` ${kind}` : "");
+  if (text) debugLog(`status[${kind || "info"}]: ${text}`);
 }
 
 // Chrome/Edge geeft dit soort teksten als de native host niet geregistreerd
@@ -259,61 +294,119 @@ function isTikTokUrl(url) {
 }
 
 function isTikTokVideoUrl(url) {
-  return /\/@[^/?#]+\/video\/\d+/i.test(url || "");
+  return (
+    /\/@[^/?#]+\/(?:video|photo)\/\d+/i.test(url || "") ||
+    /\/embed\/(?:video|photo)\/\d+/i.test(url || "")
+  );
+}
+
+/** Feed/home-URL’s zijn geen downloadbare video — blokkeer vóór yt-dlp. */
+function tiktokFeedBlockReason(url) {
+  if (!isTikTokUrl(url)) return null;
+  if (isTikTokVideoUrl(url)) return null;
+  return "Geen TikTok-video gevonden (alleen feed-URL). Vernieuw de TikTok-tab, speel een video af, open de extentie opnieuw.";
 }
 
 // TikTok For You: tab-URL is vaak alleen tiktok.com/ — content script
 // reconstrueert de canonieke /@user/video/id-link van de zichtbare video.
 async function resolveTikTokDownloadUrl(tab) {
-  if (!tab?.id) return null;
-
-  const ask = async () => {
-    const res = await chrome.tabs.sendMessage(tab.id, {
-      type: "getDownloadUrl",
-    });
-    return res?.url || null;
-  };
-
-  try {
-    const url = await ask();
-    if (url) return url;
-  } catch (_) {
-    // Script nog niet geladen (tab open vóór extentie-installatie/reload).
+  if (!tab?.id) {
+    debugLog("TikTok resolve: geen tab.id");
+    return { url: null, debug: null };
   }
 
-  if (!chrome.scripting?.executeScript) return null;
+  const ask = async (label) => {
+    debugLog(`TikTok ask (${label}): tabs.sendMessage…`);
+    try {
+      const res = await chrome.tabs.sendMessage(tab.id, {
+        type: "getDownloadUrl",
+        debug: true,
+      });
+      debugLog(`TikTok ask (${label}): antwoord`, res);
+      return res || null;
+    } catch (e) {
+      debugLog(`TikTok ask (${label}): MISLUKT`, {
+        message: (e && e.message) || String(e),
+      });
+      return null;
+    }
+  };
+
+  let res = await ask("eerste poging");
+  if (res?.url) return { url: res.url, debug: res.debug || null };
+
+  if (!chrome.scripting?.executeScript) {
+    debugLog("TikTok resolve: chrome.scripting ontbreekt — stop");
+    return { url: null, debug: res?.debug || null };
+  }
+
   try {
+    debugLog("TikTok resolve: inject content/tiktok.js…");
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       files: ["content/tiktok.js"],
     });
-    return await ask();
-  } catch (_) {
-    try {
-      const [{ result }] = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: () =>
-          typeof globalThis.__downoaderDetectTikTok === "function"
-            ? globalThis.__downoaderDetectTikTok()
-            : null,
-      });
-      return result || null;
-    } catch (_) {
-      return null;
-    }
+    debugLog("TikTok resolve: inject OK");
+  } catch (e) {
+    debugLog("TikTok resolve: inject MISLUKT", {
+      message: (e && e.message) || String(e),
+    });
+  }
+
+  res = await ask("na inject");
+  if (res?.url) return { url: res.url, debug: res.debug || null };
+
+  try {
+    debugLog("TikTok resolve: executeScript func __downoaderDetectTikTokDebug…");
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () =>
+        typeof globalThis.__downoaderDetectTikTokDebug === "function"
+          ? globalThis.__downoaderDetectTikTokDebug()
+          : typeof globalThis.__downoaderDetectTikTok === "function"
+            ? { url: globalThis.__downoaderDetectTikTok(), debug: null }
+            : { url: null, debug: { error: "geen detect-functie op pagina" } },
+    });
+    debugLog("TikTok resolve: func resultaat", result);
+    if (result?.url) return { url: result.url, debug: result.debug || null };
+    return { url: null, debug: result?.debug || null };
+  } catch (e) {
+    debugLog("TikTok resolve: func MISLUKT", {
+      message: (e && e.message) || String(e),
+    });
+    return { url: null, debug: null };
   }
 }
 
 async function loadActiveTabUrl() {
+  debugLog("=== loadActiveTabUrl ===");
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.url || !/^https?:/i.test(tab.url)) return;
+  debugLog("Actieve tab", {
+    id: tab?.id,
+    url: tab?.url,
+    title: tab?.title,
+    status: tab?.status,
+  });
+  if (!tab?.url || !/^https?:/i.test(tab.url)) {
+    debugLog("Geen bruikbare http(s) tab-URL");
+    return;
+  }
 
   let url = tab.url;
   if (isTikTokUrl(tab.url)) {
-    const detected = await resolveTikTokDownloadUrl(tab);
-    if (detected) url = detected;
+    debugLog("TikTok-host herkend — detectie starten");
+    const resolved = await resolveTikTokDownloadUrl(tab);
+    if (resolved.url) {
+      url = resolved.url;
+      debugLog("TikTok-video URL gekozen", url);
+    } else {
+      debugLog("TikTok-detectie gaf geen video-URL — tab-URL blijft staan");
+    }
+  } else {
+    debugLog("Geen TikTok-tab — tab-URL gebruiken");
   }
   urlEl.value = url;
+  debugLog("URL-veld gezet", urlEl.value);
 }
 
 async function loadSettings() {
@@ -383,8 +476,14 @@ async function openInAndroidApp(url, format) {
 
 async function refreshFormats() {
   const url = urlEl.value.trim();
+  debugLog("refreshFormats", { url });
   if (!url) {
     setStatus("Geen URL.", "error");
+    return;
+  }
+  const blocked = tiktokFeedBlockReason(url);
+  if (blocked) {
+    setStatus(blocked, "error");
     return;
   }
   setBusy(true);
@@ -406,8 +505,14 @@ async function refreshFormats() {
 
 async function sendToApp() {
   const url = urlEl.value.trim();
+  debugLog("sendToApp", { url });
   if (!url) {
     setStatus("Geen URL.", "error");
+    return;
+  }
+  const blocked = tiktokFeedBlockReason(url);
+  if (blocked) {
+    setStatus(blocked, "error");
     return;
   }
   if (isAndroid || !hasNativeMessaging()) {
@@ -501,6 +606,7 @@ function applyDownloadState(state) {
         }
       }
     } else {
+      debugLog("downloadDone FAIL", state);
       setStatus(state.error || "Download mislukt", "error");
     }
   }
@@ -508,12 +614,18 @@ function applyDownloadState(state) {
 
 async function downloadHere({ auto = false } = {}) {
   const url = urlEl.value.trim();
+  debugLog("downloadHere", { url, auto });
   if (!url) {
     setStatus("Geen URL op deze tab.", "error");
     return;
   }
   if (!/^https?:/i.test(url)) {
     setStatus("Alleen http(s)-URL’s kunnen gedownload worden.", "error");
+    return;
+  }
+  const blocked = tiktokFeedBlockReason(url);
+  if (blocked) {
+    setStatus(blocked, "error");
     return;
   }
   if (isAndroid || !hasNativeMessaging()) {
@@ -536,6 +648,12 @@ async function downloadHere({ auto = false } = {}) {
   const formatId = auto ? undefined : chosenFormatId();
   let res;
   try {
+    debugLog("startDirectDownload → background", {
+      url,
+      format,
+      formatId,
+      playlistMode,
+    });
     res = await chrome.runtime.sendMessage({
       type: "startDirectDownload",
       payload: {
@@ -546,7 +664,11 @@ async function downloadHere({ auto = false } = {}) {
         outputDir: downloadDirEl.value.trim() || undefined,
       },
     });
+    debugLog("startDirectDownload antwoord", res);
   } catch (e) {
+    debugLog("startDirectDownload exception", {
+      message: (e && e.message) || String(e),
+    });
     setBusy(false);
     setStatus(e.message || String(e), "error");
     return;
@@ -608,7 +730,51 @@ urlEl.addEventListener("input", () => {
   }
 });
 
+debugClearBtn?.addEventListener("click", () => {
+  debugClear();
+  debugLog("Log geleegd");
+});
+
+debugCopyBtn?.addEventListener("click", async () => {
+  const text = debugLogEl?.textContent || "";
+  try {
+    await navigator.clipboard.writeText(text);
+    setStatus("Debug-log gekopieerd.", "ok");
+  } catch (e) {
+    setStatus("Kopiëren mislukt: " + ((e && e.message) || String(e)), "error");
+  }
+});
+
+debugRedetectBtn?.addEventListener("click", async () => {
+  debugLog("=== handmatig opnieuw detecteren ===");
+  setBusy(true);
+  try {
+    await loadActiveTabUrl();
+    const url = urlEl.value.trim();
+    if (isTikTokUrl(url) && !isTikTokVideoUrl(url)) {
+      setStatus(
+        "TikTok-feed: nog geen video-URL. Zie debug-log hieronder.",
+        "error"
+      );
+    } else if (isTikTokVideoUrl(url)) {
+      setStatus("TikTok-video gedetecteerd.", "ok");
+    } else {
+      setStatus("URL vernieuwd.", "ok");
+    }
+  } catch (e) {
+    debugLog("Opnieuw detecteren mislukt", {
+      message: (e && e.message) || String(e),
+    });
+    setStatus((e && e.message) || String(e), "error");
+  } finally {
+    setBusy(false);
+  }
+});
+
 (async () => {
+  debugLog("Popup open", {
+    extensionVersion: chrome.runtime.getManifest?.()?.version,
+  });
   await loadActiveTabUrl();
   try {
     const info = await chrome.runtime.getPlatformInfo();

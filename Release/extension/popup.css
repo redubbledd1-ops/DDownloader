@@ -283,3 +283,38 @@ progress {
   margin: 0 0 10px;
   height: 6px;
 }
+
+.debug-panel {
+  margin-top: 10px;
+}
+
+.debug-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.debug-actions button.ghost {
+  flex: 1;
+  width: auto;
+  margin-top: 0;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+.debug-log {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #060a14;
+  color: #b8c0d0;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

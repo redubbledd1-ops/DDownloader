@@ -113,6 +113,19 @@
       </label>
     </details>
 
+    <details class="settings debug-panel" id="debugPanel" open>
+      <summary>Debug-log</summary>
+      <p class="hint">
+        Laat zien wat de extentie/TikTok-detectie doet. Handig als downloads falen.
+      </p>
+      <div class="debug-actions">
+        <button id="debugRedetect" type="button" class="ghost">Opnieuw detecteren</button>
+        <button id="debugCopy" type="button" class="ghost">Kopiëren</button>
+        <button id="debugClear" type="button" class="ghost">Legen</button>
+      </div>
+      <pre id="debugLog" class="debug-log" aria-live="polite"></pre>
+    </details>
+
     <script src="popup.js"></script>
   </body>
 </html>

@@ -369,23 +369,15 @@ class L10n {
     return total != null ? '$done/$total $suffix' : '$done $suffix';
   }
 
-  String get expandPlaylistTooltip => switch (language) {
-    AppLanguage.nl => 'Playlist uitklappen',
-    AppLanguage.en => 'Expand playlist',
-    AppLanguage.de => 'Playlist ausklappen',
-    AppLanguage.fr => 'Déplier la playlist',
-    AppLanguage.es => 'Expandir playlist',
-    AppLanguage.pt => 'Expandir playlist',
+  String get playFileTooltip => switch (language) {
+    AppLanguage.nl => 'Afspelen',
+    AppLanguage.en => 'Play',
+    AppLanguage.de => 'Abspielen',
+    AppLanguage.fr => 'Lire',
+    AppLanguage.es => 'Reproducir',
+    AppLanguage.pt => 'Reproduzir',
   };
 
-  String get collapsePlaylistTooltip => switch (language) {
-    AppLanguage.nl => 'Playlist inklappen',
-    AppLanguage.en => 'Collapse playlist',
-    AppLanguage.de => 'Playlist einklappen',
-    AppLanguage.fr => 'Réduire la playlist',
-    AppLanguage.es => 'Contraer playlist',
-    AppLanguage.pt => 'Recolher playlist',
-  };
 
   String get loadingDownloadDir => switch (language) {
     AppLanguage.nl => 'Downloadmap laden...',

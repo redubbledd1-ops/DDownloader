@@ -279,6 +279,13 @@ class _HomePageState extends State<HomePage> {
     final head = group.items.first;
     final expanded = _expandedPlaylistIds.contains(group.id);
     final downloading = group.id == _activePlaylistId;
+    void toggle() => setState(() {
+      if (expanded) {
+        _expandedPlaylistIds.remove(group.id);
+      } else {
+        _expandedPlaylistIds.add(group.id);
+      }
+    });
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -289,43 +296,17 @@ class _HomePageState extends State<HomePage> {
                   height: 24,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Icon(Icons.playlist_play),
+              : Icon(expanded ? Icons.expand_less : Icons.expand_more),
           title: Text(head.fileName),
           subtitle: Text(
             t.playlistProgress(group.items.length, head.playlistTotal),
           ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.folder_open, size: 18),
-                tooltip: t.openFolderTooltip,
-                onPressed: () => _openItemFolder(head.path),
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline, size: 18),
-                tooltip: t.deleteTooltip,
-                onPressed: () => _deleteItem(head),
-              ),
-              IconButton(
-                icon: Icon(
-                  expanded ? Icons.expand_less : Icons.expand_more,
-                  size: 18,
-                ),
-                tooltip: expanded
-                    ? t.collapsePlaylistTooltip
-                    : t.expandPlaylistTooltip,
-                onPressed: () => setState(() {
-                  if (expanded) {
-                    _expandedPlaylistIds.remove(group.id);
-                  } else {
-                    _expandedPlaylistIds.add(group.id);
-                  }
-                }),
-              ),
-            ],
+          trailing: IconButton(
+            icon: const Icon(Icons.play_arrow, size: 20),
+            tooltip: t.playFileTooltip,
+            onPressed: () => _openFile(head.path),
           ),
-          onTap: () => _openFile(head.path),
+          onTap: toggle,
         ),
         if (expanded)
           for (final item in group.items.skip(1))

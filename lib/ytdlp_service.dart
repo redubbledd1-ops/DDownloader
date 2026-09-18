@@ -121,12 +121,37 @@ class PlaylistProbeResult {
 
 class YtDlpService {
   bool _androidReady = false;
+  // Eén gedeelde init-Future: `exeExists()` en `ensureYtDlp()` worden vlak na
+  // elkaar aangeroepen, en twee parallelle 'init'-calls zouden het uitpakken
+  // van python/ffmpeg dubbel laten starten.
+  Future<void>? _androidInit;
 
   // Enkel nog relevant voor Android: op desktop wordt yt-dlp bij het
   // eerste gebruik automatisch gedownload (zie ensureYtDlp hieronder), dus
   // daar is niets meer dat blijvend "niet beschikbaar" kan zijn.
   String get unavailableMessage =>
       'yt-dlp kon niet worden geïnitialiseerd op dit toestel.';
+
+  /// Start het uitpakken van python/ffmpeg/yt-dlp alvast bij het openen van de
+  /// app. Anders valt dat zware werk samen met de Download-tik, precies op het
+  /// moment dat er ook een kindproces gestart wordt.
+  Future<void> warmUp() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await ensureYtDlp();
+    } catch (_) {
+      // Stil: de echte foutmelding komt bij de eerste download.
+    }
+  }
+
+  /// Schiet een lopend yt-dlp-kindproces af. Zonder dit blijft python draaien
+  /// nadat de UI weg is.
+  Future<void> cancelDownload() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _androidChannel.invokeMethod('cancel');
+    } catch (_) {}
+  }
 
   Future<bool> exeExists() async {
     if (Platform.isAndroid) {
@@ -163,8 +188,16 @@ class YtDlpService {
     if (Platform.isAndroid) {
       // Android draait via youtubedl-android (MethodChannel), geen .exe.
       if (!_androidReady) {
-        await _androidChannel.invokeMethod('init');
-        _androidReady = true;
+        final init = _androidInit ??= _androidChannel
+            .invokeMethod<void>('init')
+            .then((_) => _androidReady = true);
+        try {
+          await init;
+        } catch (_) {
+          // Mislukte init niet cachen: een volgende poging mag opnieuw.
+          _androidInit = null;
+          rethrow;
+        }
       }
       return 'android';
     }
@@ -544,6 +577,7 @@ class YtDlpService {
     String? formatId,
   }) {
     final controller = StreamController<DownloadEvent>();
+    var lastProgress = -1.0;
     final progressSub = _androidProgressChannel.receiveBroadcastStream().listen(
       (event) {
         final map = Map<String, dynamic>.from(event as Map);
@@ -553,10 +587,17 @@ class YtDlpService {
           if (path != null) controller.add(FileDownloadedEvent(path));
           return;
         }
-        if (line.isNotEmpty) controller.add(LogEvent(line));
+        // Kale voortgangsregels niet in het log: dat zijn er duizenden per
+        // download en elke regel kost een rebuild van de logweergave.
+        if (line.isNotEmpty && !_percentRegex.hasMatch(line)) {
+          controller.add(LogEvent(line));
+        }
         final progress = map['progress'];
-        if (progress is num && progress >= 0) {
-          controller.add(ProgressEvent(progress.toDouble()));
+        // Alleen doorgeven als de waarde echt veranderd is: de native kant
+        // stuurt ook bij niet-voortgangsregels de laatst bekende stand mee.
+        if (progress is num && progress >= 0 && progress != lastProgress) {
+          lastProgress = progress.toDouble();
+          controller.add(ProgressEvent(lastProgress));
         }
         if (line.startsWith('[download] Destination:') ||
             line.startsWith('[ExtractAudio]') ||
@@ -621,6 +662,12 @@ class YtDlpService {
       '--windows-filenames',
       '--file-access-retries',
       '15',
+      // `--print` zet yt-dlp impliciet in quiet-modus, en quiet zet noprogress
+      // aan (zie opts.quiet/noprogress in yt_dlp/__init__.py). Zonder deze twee
+      // vlaggen komt er geen enkele [download]-regel binnen en blijft de
+      // voortgangsbalk op 0% staan terwijl de download gewoon loopt.
+      '--no-quiet',
+      '--progress',
       '--newline',
       '--no-mtime',
       '--print',

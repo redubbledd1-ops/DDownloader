@@ -1,6 +1,8 @@
 package com.example.downoader
 
+import android.content.Context
 import android.content.Intent
+import android.os.SystemClock
 import androidx.core.content.FileProvider
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
@@ -10,6 +12,9 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
 
 class MainActivity : FlutterActivity() {
     private val channelName = "downoader/ytdlp"
@@ -26,12 +31,32 @@ class MainActivity : FlutterActivity() {
     private val playerClientArgs = listOf(
         "--extractor-args" to "youtube:player_client=default,tv_simply",
     )
+
+    // Elk gelijktijdig fragment houdt een eigen buffer in het python-proces.
+    // Op een telefoon is geheugen de schaarse resource — en geheugendruk was
+    // precies wat de app liet afschieten — dus bewust laag.
     private val concurrencyArgs = listOf(
-        "--concurrent-fragments" to "4",
+        "--concurrent-fragments" to "2",
+    )
+
+    // `--print` zet yt-dlp impliciet in quiet-modus (opts.quiet in
+    // yt_dlp/__init__.py), en quiet zet noprogress aan. Zonder deze vlaggen
+    // komt er dus geen enkele voortgangsregel binnen en blijft de balk op 0%
+    // staan terwijl er wel gedownload wordt.
+    private val outputArgs = listOf(
+        "--no-quiet" to null,
+        "--progress" to null,
+        "--newline" to null,
     )
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // Python/ffmpeg/yt-dlp uitpakken kost seconden en ~100 MB schrijfwerk.
+        // Dat mag niet pas op de Download-tik gebeuren: dan valt zware init
+        // samen met het starten van het kindproces. Nu al starten, op de
+        // achtergrond, precies een keer per proces.
+        beginInit(this)
 
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, progressChannelName)
             .setStreamHandler(object : EventChannel.StreamHandler {
@@ -73,6 +98,10 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                     "download" -> handleDownload(call, result)
+                    "cancel" -> {
+                        killRunningDownload()
+                        result.success(null)
+                    }
                     "openFile" -> {
                         val path = call.argument<String>("path")
                         if (path.isNullOrBlank()) {
@@ -121,9 +150,9 @@ class MainActivity : FlutterActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        // Alleen echte share/deeplink-URL’s doorgeven. MAIN/LAUNCHER of lege
-        // intents negeren — die kunnen de UI laten “herladen” terwijl het
-        // proces blijft draaien.
+        // Alleen echte share/deeplink-URL's doorgeven. MAIN/LAUNCHER of lege
+        // intents negeren — die kunnen de UI laten herladen terwijl het proces
+        // blijft draaien.
         val payload = extractIncoming(intent) ?: return
         if (intentChannel != null) {
             intentChannel?.invokeMethod("incomingUrl", payload)
@@ -137,21 +166,37 @@ class MainActivity : FlutterActivity() {
         // FlutterActivity is een plain Activity (geen ComponentActivity), dus
         // geen onBackPressedDispatcher beschikbaar. super.onBackPressed()
         // delegeert al naar de Flutter-engine, die zelf via PopScope beslist
-        // of de route pop't — geen eigen finish-logica nodig.
+        // of de route popt — geen eigen finish-logica nodig.
         super.onBackPressed()
     }
 
-    override fun finish() {
-        // Config-change recreate mag wél. Andere finish()-calls (IME/framework
-        // quirks) negeren we: géén moveTaskToBack — dat oogt als minimaliseren
-        // terwijl het proces blijft draaien en bij terugkeer opnieuw laadt.
-        if (isChangingConfigurations) {
-            super.finish()
-        }
+    // Geen finish()-override meer. Die blokkeerde ook legitieme finish()-calls
+    // van het framework, waardoor de oude activity als zombie bleef staan en het
+    // systeem er een nieuwe instantie bovenop zette: splashscreen + volledige
+    // Dart-herstart, terwijl de app niet helemaal sluit. Dat was een pleister op
+    // de echte oorzaak (proces werd afgeschoten) en maakte hem onzichtbaar.
+
+    override fun onDestroy() {
+        // Activity weg = niemand luistert nog naar voortgang. Het kindproces
+        // laten doorlopen levert alleen stapelende python-processen op bij een
+        // volgende poging.
+        if (!isChangingConfigurations) killRunningDownload()
+        super.onDestroy()
     }
 
     private fun extractIncoming(intent: Intent?): Map<String, String>? {
         if (intent == null) return null
+        val payload = parseIncoming(intent) ?: return null
+        // Bij een activity-recreate levert het systeem dezelfde start-intent
+        // opnieuw aan. Zonder deze check start Dart de download telkens opnieuw:
+        // een lus die er uit ziet als "app herstart en downloadt weer niks".
+        val key = payload["url"] ?: return payload
+        if (key == consumedIntentUrl) return null
+        consumedIntentUrl = key
+        return payload
+    }
+
+    private fun parseIncoming(intent: Intent): Map<String, String>? {
         if (Intent.ACTION_SEND == intent.action) {
             val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return null
             val url = Regex("https?://\\S+").find(text)?.value ?: text.trim()
@@ -184,16 +229,15 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun handleInit(result: MethodChannel.Result) {
+        beginInit(this)
         Thread {
             try {
-                YoutubeDL.getInstance().init(applicationContext)
-                FFmpeg.init(applicationContext)
-                // Geen updateYoutubeDL op Download-tik: die download/uitpak kan het
-                // proces killen (app lijkt te "minimaliseren") en race't met de
-                // download zelf. Bundled yt-dlp is genoeg voor beta.
+                awaitInit()
                 runOnUiThread { result.success(null) }
-            } catch (e: Exception) {
-                runOnUiThread { result.error("INIT_FAILED", e.message, null) }
+            } catch (e: Throwable) {
+                runOnUiThread {
+                    result.error("INIT_FAILED", e.message ?: e.toString(), null)
+                }
             }
         }.start()
     }
@@ -205,11 +249,12 @@ class MainActivity : FlutterActivity() {
     ) {
         Thread {
             try {
+                awaitInit()
                 val request = YoutubeDLRequest(url)
                 options.forEach { (opt, value) -> request.addOpt(opt, value) }
                 val response = YoutubeDL.getInstance().execute(request, null, null)
                 runOnUiThread { result.success(response.out) }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 runOnUiThread {
                     result.error("YTDLP_ERROR", e.message ?: "onbekende fout", null)
                 }
@@ -217,7 +262,10 @@ class MainActivity : FlutterActivity() {
         }.start()
     }
 
-    private fun handleDownload(call: io.flutter.plugin.common.MethodCall, result: MethodChannel.Result) {
+    private fun handleDownload(
+        call: io.flutter.plugin.common.MethodCall,
+        result: MethodChannel.Result,
+    ) {
         val url = call.argument<String>("url")
         val outputDir = call.argument<String>("outputDir")
         val format = call.argument<String>("format")
@@ -225,19 +273,28 @@ class MainActivity : FlutterActivity() {
             result.error("DOWNLOAD_FAILED", "url/outputDir/format ontbreekt", null)
             return
         }
+        if (!downloadRunning.compareAndSet(false, true)) {
+            result.error("DOWNLOAD_FAILED", "Er loopt al een download", null)
+            return
+        }
         val isPlaylist: Boolean = call.argument("isPlaylist") ?: false
         val formatId: String? = call.argument("formatId")
+        val appContext = applicationContext
+
+        // Foreground service starten voordat het kindproces er is, niet erna:
+        // juist het aanmaken van dat geheugenhongerige kindproces lokt de kill uit.
+        DownloadKeepAliveService.start(appContext, "Bezig met downloaden...")
 
         Thread {
             try {
+                awaitInit()
                 File(outputDir).mkdirs()
                 val request = YoutubeDLRequest(url)
                 request.addOption("-o", "$outputDir/%(title)s.%(ext)s")
-                request.addOption("--newline")
                 request.addOption("--no-mtime")
                 request.addOption("--print", "after_move:FILEPATH::%(filepath)s")
                 request.addOption(if (isPlaylist) "--yes-playlist" else "--no-playlist")
-                (playerClientArgs + concurrencyArgs).forEach { (opt, value) ->
+                (outputArgs + playerClientArgs + concurrencyArgs).forEach { (opt, value) ->
                     request.addOpt(opt, value)
                 }
                 if (format == "mp3") {
@@ -249,23 +306,70 @@ class MainActivity : FlutterActivity() {
                     request.addOption("--merge-output-format", "mp4")
                 }
 
-                YoutubeDL.getInstance().execute(request, null) { progress, _, line ->
+                // Restant van een eerdere, afgebroken run opruimen: anders weigert
+                // execute() de process-id en stapelen python-processen zich op.
+                killRunningDownload()
+
+                var lastEmit = 0L
+                var lastProgress = -1f
+                var lastNotification = 0L
+                YoutubeDL.getInstance().execute(request, downloadProcessId) { progress, _, line ->
+                    val text = line ?: ""
+                    val important = text.contains(FILEPATH_MARKER) ||
+                        text.startsWith("[download] Destination:") ||
+                        text.startsWith("[ExtractAudio]") ||
+                        text.startsWith("[Merger]") ||
+                        text.startsWith("ERROR") ||
+                        text.startsWith("WARNING")
+                    val now = SystemClock.uptimeMillis()
+                    // yt-dlp spuit met --newline een regel per voortgangstik uit.
+                    // Elke regel ongefilterd naar de UI-thread pompen liet de main
+                    // looper vollopen (ANR-gebied) en gaf een setState-rebuild per
+                    // regel in Flutter.
+                    if (!important &&
+                        now - lastEmit < PROGRESS_THROTTLE_MS &&
+                        abs(progress - lastProgress) < 1f
+                    ) {
+                        return@execute
+                    }
+                    lastEmit = now
+                    lastProgress = progress
+                    if (progress >= 0f && now - lastNotification > 2000L) {
+                        lastNotification = now
+                        DownloadKeepAliveService.start(
+                            appContext,
+                            "Bezig met downloaden... ${progress.toInt()}%",
+                        )
+                    }
                     runOnUiThread {
                         eventSink?.success(
                             mapOf(
                                 "progress" to progress.toDouble(),
-                                "line" to (line ?: ""),
+                                "line" to text,
                             ),
                         )
                     }
                 }
                 runOnUiThread { result.success(null) }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // Throwable, niet Exception: een OutOfMemoryError of
+                // UnsatisfiedLinkError uit het native deel liet de thread anders
+                // stil doodgaan en de Dart-kant eeuwig wachten op een antwoord.
                 runOnUiThread {
-                    result.error("DOWNLOAD_FAILED", e.message ?: "onbekende fout", null)
+                    result.error("DOWNLOAD_FAILED", e.message ?: e.toString(), null)
                 }
+            } finally {
+                downloadRunning.set(false)
+                DownloadKeepAliveService.stop(appContext)
             }
         }.start()
+    }
+
+    private fun killRunningDownload() {
+        try {
+            YoutubeDL.getInstance().destroyProcessById(downloadProcessId)
+        } catch (_: Throwable) {
+        }
     }
 
     private fun openFile(path: String) {
@@ -273,7 +377,7 @@ class MainActivity : FlutterActivity() {
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
         val mimeType = contentResolver.getType(uri) ?: "*/*"
         // Geen FLAG_ACTIVITY_NEW_TASK: die zet onze activity naar de achtergrond
-        // alsof de app "minimaliseert". We zijn al een Activity.
+        // alsof de app minimaliseert. We zijn al een Activity.
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, mimeType)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -293,6 +397,47 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             // Geen bestandsbeheerder die mappen kan openen: open het bestand zelf.
             openFile(path)
+        }
+    }
+
+    companion object {
+        private const val FILEPATH_MARKER = "FILEPATH::"
+        private const val PROGRESS_THROTTLE_MS = 250L
+        private const val downloadProcessId = "downoader-download"
+
+        // Proces-breed, niet per Activity: init en het kindproces overleven een
+        // activity-recreate, dus de bewaking eromheen moet dat ook doen.
+        private val initStarted = AtomicBoolean(false)
+        private val initLatch = CountDownLatch(1)
+        private val downloadRunning = AtomicBoolean(false)
+
+        @Volatile
+        private var initError: String? = null
+
+        @Volatile
+        private var consumedIntentUrl: String? = null
+
+        fun beginInit(context: Context) {
+            if (!initStarted.compareAndSet(false, true)) return
+            val appContext = context.applicationContext
+            Thread {
+                try {
+                    YoutubeDL.getInstance().init(appContext)
+                    FFmpeg.init(appContext)
+                    // Geen updateYoutubeDL: die download/uitpak kan het proces
+                    // killen (app lijkt te minimaliseren) en racet met de
+                    // download zelf. De gebundelde yt-dlp is genoeg voor beta.
+                } catch (e: Throwable) {
+                    initError = e.message ?: e.toString()
+                } finally {
+                    initLatch.countDown()
+                }
+            }.start()
+        }
+
+        fun awaitInit() {
+            initLatch.await()
+            initError?.let { throw IllegalStateException(it) }
         }
     }
 }

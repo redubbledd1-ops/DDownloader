@@ -331,11 +331,18 @@ class _HomePageState extends State<HomePage> {
       unawaited(_mergeExtensionDownloads());
       unawaited(_pollExtensionInbox());
     }
+    if (Platform.isAndroid) {
+      // Python/ffmpeg uitpakken nu vast starten. Deed de Download-knop dat
+      // zelf, dan viel dat zware werk samen met het starten van het
+      // yt-dlp-kindproces en schoot Android het app-proces af.
+      unawaited(_service.warmUp());
+    }
     _bootstrap();
   }
 
   @override
   void dispose() {
+    if (Platform.isAndroid && _busy) unawaited(_service.cancelDownload());
     _inboxTimer?.cancel();
     _completedTimer?.cancel();
     _completedWatch?.cancel();

@@ -25,7 +25,7 @@ Windows may show a SmartScreen ("Windows protected your PC") warning because the
 ## Android use
 
 1. Go to [Releases](https://github.com/redubbledd1-ops/Downloader/releases)
-2. Download `Downloader-1.2.2.apk` — this is the **Android phone/tablet app** (not a browser extension)
+2. Download `Downloader-1.2.3.apk` — this is the **Android phone/tablet app** (not a browser extension)
 3. Open the file on your device → allow install from unknown sources if asked → install
 
 The Chrome/Edge/Firefox extension talks to the Windows app via native messaging. On Android, the Firefox extension opens the APK app (`downoader://download?url=…`). You can also share a link to the Downloader app.

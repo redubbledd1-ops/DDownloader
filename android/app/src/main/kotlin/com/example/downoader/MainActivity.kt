@@ -167,13 +167,9 @@ class MainActivity : FlutterActivity() {
             try {
                 YoutubeDL.getInstance().init(applicationContext)
                 FFmpeg.init(applicationContext)
-                try {
-                    // YouTube wijzigt regelmatig zijn anti-bot checks; een verouderde
-                    // meegeleverde yt-dlp-versie geeft dan 403 op elke download.
-                    YoutubeDL.getInstance().updateYoutubeDL(applicationContext)
-                } catch (_: Exception) {
-                    // Geen netwerk of al up-to-date: doorgaan met de meegeleverde versie.
-                }
+                // Geen updateYoutubeDL op Download-tik: die download/uitpak kan het
+                // proces killen (app lijkt te "minimaliseren") en race't met de
+                // download zelf. Bundled yt-dlp is genoeg voor beta.
                 runOnUiThread { result.success(null) }
             } catch (e: Exception) {
                 runOnUiThread { result.error("INIT_FAILED", e.message, null) }
@@ -255,10 +251,11 @@ class MainActivity : FlutterActivity() {
         val file = File(path)
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
         val mimeType = contentResolver.getType(uri) ?: "*/*"
+        // Geen FLAG_ACTIVITY_NEW_TASK: die zet onze activity naar de achtergrond
+        // alsof de app "minimaliseert". We zijn al een Activity.
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, mimeType)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         startActivity(intent)
     }
@@ -269,7 +266,6 @@ class MainActivity : FlutterActivity() {
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "resource/folder")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         try {
             startActivity(intent)

@@ -132,8 +132,7 @@ class YtDlpService {
     if (Platform.isAndroid) {
       if (_androidReady) return true;
       try {
-        await _androidChannel.invokeMethod('init');
-        _androidReady = true;
+        await ensureYtDlp();
         return true;
       } catch (_) {
         return false;

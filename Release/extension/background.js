@@ -16,12 +16,15 @@ let activeDownload = null;
 function publicState(state) {
   return {
     url: state.url,
+    isPlaylist: state.isPlaylist,
     progress: state.progress,
     statusLine: state.statusLine,
     done: state.done,
     ok: state.ok,
     error: state.error,
     path: state.path,
+    firstPath: state.firstPath,
+    paths: state.paths,
   };
 }
 
@@ -93,6 +96,8 @@ function startDirectDownload(payload) {
     ok: null,
     error: null,
     path: null,
+    firstPath: null,
+    paths: [],
   };
   activeDownload = state;
 
@@ -111,6 +116,8 @@ function startDirectDownload(payload) {
         path: state.path,
         format: state.format,
         isPlaylist: state.isPlaylist,
+        firstPath: state.firstPath,
+        paths: state.paths,
       });
     }
     try {
@@ -122,7 +129,11 @@ function startDirectDownload(payload) {
     if (!msg) return;
     if (typeof msg.progress === "number") state.progress = msg.progress;
     if (msg.line) state.statusLine = msg.line;
-    if (msg.path) state.path = msg.path;
+    if (msg.path) {
+      state.path = msg.path;
+      if (!state.firstPath) state.firstPath = msg.path;
+      if (!state.paths.includes(msg.path)) state.paths.push(msg.path);
+    }
     if (msg.done) {
       finishOnce(msg.ok !== false, msg.ok === false ? msg.error : null);
       return;

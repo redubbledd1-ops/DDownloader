@@ -15,6 +15,12 @@ const autoDownloadEl = document.getElementById("autoDownload");
 const openFolderBtn = document.getElementById("openFolderBtn");
 const playFileBtn = document.getElementById("playFileBtn");
 const downloadedActionsEl = document.getElementById("downloadedActions");
+const playlistGroupEl = document.getElementById("playlistGroup");
+const playlistSpinnerEl = document.getElementById("playlistSpinner");
+const playlistFirstNameEl = document.getElementById("playlistFirstName");
+const playlistToggleBtn = document.getElementById("playlistToggle");
+const playlistCountEl = document.getElementById("playlistCount");
+const playlistRestEl = document.getElementById("playlistRest");
 const preferredQualityEl = document.getElementById("preferredQuality");
 const githubLinkEl = document.getElementById("githubLink");
 const audioOnlyEl = document.getElementById("audioOnly");
@@ -141,6 +147,70 @@ function hideDownloadedActions() {
   lastDownloadedPath = null;
   downloadedActionsEl.hidden = true;
 }
+
+let playlistRestExpanded = false;
+
+function openPathVia(cmd, path) {
+  if (!path) return;
+  sendNative({ cmd, path }).catch((e) => {
+    setStatus(e.message || String(e), "error");
+  });
+}
+
+function renderPlaylistRest(paths) {
+  playlistRestEl.innerHTML = "";
+  for (const path of paths) {
+    const li = document.createElement("li");
+    const name = document.createElement("span");
+    name.className = "playlist-rest-name";
+    name.textContent = fileNameOf(path);
+    const playBtn = document.createElement("button");
+    playBtn.type = "button";
+    playBtn.className = "ghost";
+    playBtn.textContent = "▶";
+    playBtn.title = "Afspelen";
+    playBtn.addEventListener("click", () => openPathVia("openFile", path));
+    const folderBtn = document.createElement("button");
+    folderBtn.type = "button";
+    folderBtn.className = "ghost";
+    folderBtn.textContent = "📁";
+    folderBtn.title = "Map openen";
+    folderBtn.addEventListener("click", () => openPathVia("openFolder", path));
+    li.append(name, playBtn, folderBtn);
+    playlistRestEl.appendChild(li);
+  }
+}
+
+function showPlaylistGroup(state) {
+  const paths = state.paths || [];
+  const firstPath = state.firstPath || paths[0];
+  if (!firstPath) return;
+  playlistGroupEl.hidden = false;
+  playlistSpinnerEl.hidden = Boolean(state.done);
+  playlistFirstNameEl.textContent = fileNameOf(firstPath);
+  playlistCountEl.textContent =
+    paths.length === 1 ? "1 nummer" : `${paths.length} nummers`;
+  renderPlaylistRest(paths.slice(1));
+  playlistRestEl.hidden = !playlistRestExpanded;
+  playlistToggleBtn.textContent = playlistRestExpanded ? "▴" : "▾";
+  playlistToggleBtn.title = playlistRestExpanded
+    ? "Playlist inklappen"
+    : "Playlist uitklappen";
+}
+
+function hidePlaylistGroup() {
+  playlistGroupEl.hidden = true;
+  playlistRestExpanded = false;
+}
+
+playlistToggleBtn.addEventListener("click", () => {
+  playlistRestExpanded = !playlistRestExpanded;
+  playlistRestEl.hidden = !playlistRestExpanded;
+  playlistToggleBtn.textContent = playlistRestExpanded ? "▴" : "▾";
+  playlistToggleBtn.title = playlistRestExpanded
+    ? "Playlist inklappen"
+    : "Playlist uitklappen";
+});
 
 function formatSize(bytes) {
   if (bytes == null) return "onbekend";
@@ -583,13 +653,18 @@ function applyDownloadState(state) {
         : state.statusLine
     );
   }
+  if (state.isPlaylist && (state.paths || []).length) {
+    showPlaylistGroup(state);
+  }
   if (state.done) {
     setBusy(false);
     if (state.ok) {
       progressEl.value = 100;
       progressEl.hidden = true;
       setStatus(state.path ? `Klaar: ${fileNameOf(state.path)}` : "Download voltooid.", "ok");
-      if (state.path) {
+      if (state.isPlaylist && (state.paths || []).length) {
+        showPlaylistGroup(state);
+      } else if (state.path) {
         showDownloadedActions(state.path);
       } else {
         // Pad soms pas later bekend — probeer via checkDownloaded.
@@ -598,7 +673,10 @@ function applyDownloadState(state) {
           chrome.runtime
             .sendMessage({ type: "checkDownloaded", url })
             .then((existing) => {
-              if (existing?.downloaded && existing.path) {
+              if (!existing?.downloaded) return;
+              if (existing.isPlaylist && (existing.paths || []).length) {
+                showPlaylistGroup({ ...existing, done: true });
+              } else if (existing.path) {
                 showDownloadedActions(existing.path);
               }
             })
@@ -635,6 +713,7 @@ async function downloadHere({ auto = false } = {}) {
   attachDownloadListener();
   setBusy(true);
   hideDownloadedActions();
+  hidePlaylistGroup();
   progressEl.hidden = false;
   progressEl.value = 0;
   setStatus(
@@ -860,7 +939,11 @@ debugRedetectBtn?.addEventListener("click", async () => {
       url: urlEl.value.trim(),
     });
     if (existing?.downloaded) {
-      showDownloadedActions(existing.path);
+      if (existing.isPlaylist && (existing.paths || []).length) {
+        showPlaylistGroup({ ...existing, done: true });
+      } else {
+        showDownloadedActions(existing.path);
+      }
       setStatus(`Al gedownload: ${existing.path}`, "ok");
       return;
     }

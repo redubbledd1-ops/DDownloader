@@ -191,11 +191,15 @@ Future<void> handleMessage(Map<String, dynamic> msg) async {
       final settings = await readSettings();
       await writeMessage({
         'ok': true,
-        'version': '1.1.0',
+        'version': '1.2.2',
+        'hostPath': Platform.resolvedExecutable,
         'ytDlp': _quickYtDlpProbe(),
         'prefsPath': prefsFile().path,
+        'inboxPath': inboxFile().path,
+        'completedPath': completedLogFile().path,
         'appExe': settings['appExe'],
       });
+      return;
     case 'getSettings':
       await writeMessage({'ok': true, 'settings': await readSettings()});
     case 'setSettings':

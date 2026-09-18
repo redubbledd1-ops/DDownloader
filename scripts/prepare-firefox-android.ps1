@@ -52,22 +52,17 @@ $perms = @($manifest.permissions | Where-Object { $_ -ne "nativeMessaging" })
 if ($perms.Count -eq 0) { $perms = @("activeTab", "tabs", "storage") }
 $manifest.permissions = $perms
 
-# Zorg dat gecko_android expliciet staat (AMO/desktop vs Android).
-if (-not $manifest.browser_specific_settings) {
-    $manifest | Add-Member -NotePropertyName browser_specific_settings -NotePropertyValue ([pscustomobject]@{})
-}
-$bss = $manifest.browser_specific_settings
-if (-not $bss.gecko) {
-    $bss | Add-Member -NotePropertyName gecko -NotePropertyValue ([pscustomobject]@{
+# Zorg dat gecko / gecko_android expliciet staan (AMO + native messaging-id).
+$manifest | Add-Member -NotePropertyName browser_specific_settings -NotePropertyValue ([pscustomobject]@{
+    gecko = [pscustomobject]@{
         id = "downloader@downoader.app"
         strict_min_version = "121.0"
-    }) -Force
-}
-if (-not $bss.gecko_android) {
-    $bss | Add-Member -NotePropertyName gecko_android -NotePropertyValue ([pscustomobject]@{
+        data_collection_permissions = [pscustomobject]@{ required = @("none") }
+    }
+    gecko_android = [pscustomobject]@{
         strict_min_version = "121.0"
-    }) -Force
-}
+    }
+}) -Force
 
 $json = $manifest | ConvertTo-Json -Depth 10
 # PowerShell ConvertTo-Json kan Unicode-escape; schrijf UTF-8 zonder BOM.

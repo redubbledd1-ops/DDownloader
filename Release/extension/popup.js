@@ -817,16 +817,26 @@ debugRedetectBtn?.addEventListener("click", async () => {
     // liet dit voorheen meteen "app niet gevonden" tonen. Eén retry na
     // een korte pauze vangt dat soort transiente hikjes op zonder een
     // echt kapotte installatie te maskeren (die faalt dan gewoon weer).
+    let ping = null;
     try {
-      await sendNative({ cmd: "ping" });
+      ping = await sendNative({ cmd: "ping" });
     } catch (firstError) {
       if (!isHostMissingError(firstError)) throw firstError;
       await new Promise((r) => setTimeout(r, 400));
-      await sendNative({ cmd: "ping" });
+      ping = await sendNative({ cmd: "ping" });
     }
+    debugLog("Native host ping", ping);
     hostReady = true;
     await loadSettings();
     settingsLoaded = true;
+
+    const hostVer = ping?.version ? `host v${ping.version}` : "host";
+    const hostPathHint = ping?.hostPath
+      ? String(ping.hostPath).includes("Program Files")
+        ? " (Program Files — mogelijk oud)"
+        : " (Desktop)"
+      : "";
+    const extVer = chrome.runtime.getManifest?.()?.version || "?";
 
     // Een download loopt in de background worker door na het sluiten van
     // de popup (zie background.js) — bij heropenen tonen we die
@@ -873,8 +883,8 @@ debugRedetectBtn?.addEventListener("click", async () => {
     } else {
       setStatus(
         isTikTokVideoUrl(urlEl.value)
-          ? "Verbonden. TikTok-video gedetecteerd."
-          : "Verbonden.",
+          ? `Verbonden · extentie v${extVer} · ${hostVer}${hostPathHint}. TikTok-video gedetecteerd.`
+          : `Verbonden · extentie v${extVer} · ${hostVer}${hostPathHint}.`,
         "ok"
       );
     }

@@ -3,7 +3,7 @@
   "description": "Downloader Native Messaging host (yt-dlp)",
   "path": "C:\\Users\\Admin\\Desktop\\Downloader\\extension\\host\\downoader_native_host.exe",
   "type": "stdio",
-  "allowed_extensions": [
-    "downloader@downoader.app"
+  "allowed_origins": [
+    "chrome-extension://meecghmbaeipmpnopapdkknnjcgconeh/"
   ]
 }

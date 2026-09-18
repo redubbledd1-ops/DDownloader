@@ -665,6 +665,33 @@ class L10n {
     AppLanguage.pt => 'Extensão do navegador',
   };
 
+  String get aboutSection => switch (language) {
+    AppLanguage.nl => 'Over',
+    AppLanguage.en => 'About',
+    AppLanguage.de => 'Info',
+    AppLanguage.fr => 'À propos',
+    AppLanguage.es => 'Acerca de',
+    AppLanguage.pt => 'Sobre',
+  };
+
+  String get appVersionLabel => switch (language) {
+    AppLanguage.nl => 'App-versie',
+    AppLanguage.en => 'App version',
+    AppLanguage.de => 'App-Version',
+    AppLanguage.fr => 'Version de l’app',
+    AppLanguage.es => 'Versión de la app',
+    AppLanguage.pt => 'Versão do app',
+  };
+
+  String get dataFolderLabel => switch (language) {
+    AppLanguage.nl => 'Gegevensmap (extentie + app)',
+    AppLanguage.en => 'Data folder (extension + app)',
+    AppLanguage.de => 'Datenordner (Erweiterung + App)',
+    AppLanguage.fr => 'Dossier de données (extension + app)',
+    AppLanguage.es => 'Carpeta de datos (extensión + app)',
+    AppLanguage.pt => 'Pasta de dados (extensão + app)',
+  };
+
   String get folderSection => switch (language) {
     AppLanguage.nl => 'Downloadmap',
     AppLanguage.en => 'Download folder',

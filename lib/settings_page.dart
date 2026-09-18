@@ -7,6 +7,7 @@ import 'folder_history_page.dart';
 import 'l10n.dart';
 import 'models.dart';
 import 'settings.dart';
+import 'app_version.dart';
 
 class SettingsPage extends StatefulWidget {
   final bool isDarkMode;
@@ -51,6 +52,15 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   late String _downloadDir = widget.downloadDir;
   final _logScrollController = ScrollController();
+  String _dataDir = '';
+
+  @override
+  void initState() {
+    super.initState();
+    Settings.appDataDir().then((dir) {
+      if (mounted) setState(() => _dataDir = dir.path);
+    });
+  }
 
   @override
   void dispose() {
@@ -309,6 +319,23 @@ class _SettingsPageState extends State<SettingsPage> {
               title: Text(t.saveLogsTooltip),
               onTap: widget.onSaveLogs,
             ),
+            _SectionHeader(title: t.aboutSection),
+            ListTile(
+              leading: const Icon(Icons.info_outline),
+              title: Text(t.appVersionLabel),
+              subtitle: const Text(kAppVersion),
+            ),
+            if (_dataDir.isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.folder_shared_outlined),
+                title: Text(t.dataFolderLabel),
+                subtitle: Text(_dataDir),
+                onTap: Platform.isWindows
+                    ? () => Process.start('explorer.exe', [
+                        _dataDir,
+                      ], mode: ProcessStartMode.detached)
+                    : null,
+              ),
           ],
         ),
       ),

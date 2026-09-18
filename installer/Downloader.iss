@@ -3,11 +3,15 @@
 
 #define MyAppName "Downloader"
 #define MyAppDirName "DownloaderD"
-#define MyAppVersion "1.1.0"
+#ifndef MyAppVersion
+  #define MyAppVersion "1.2.2"
+#endif
 #define MyAppPublisher "Downloader"
 #define MyAppURL "https://github.com/redubbledd1-ops/Downloader"
 #define MyAppExeName "downoader.exe"
-#define MyExtensionId "meecghmbaeipmpnopapdkknnjcgconeh"
+#ifndef MyExtensionId
+  #define MyExtensionId "meecghmbaeipmpnopapdkknnjcgconeh"
+#endif
 #ifndef BuildDir
   #define BuildDir "..\build\windows\x64\runner\Release"
 #endif

@@ -15,7 +15,7 @@ See [`LICENSE`](LICENSE). Short version:
 ## Windows use
 
 1. Go to [Releases](https://github.com/redubbledd1-ops/Downloader/releases)
-2. Download `DownloaderSetup-1.1.0.exe` (or the latest Setup)
+2. Download `DownloaderSetup-1.2.2.exe` (or the latest Setup)
 3. Run the installer (default folder: `C:\Program Files (x86)\DownloaderD` — app, tools, host, and extension all live there)
 
 During setup you choose a **download folder**. If Chrome, Edge and/or **Firefox** are installed, the installer shows optional tasks to set up that browser’s extension (same `extension` folder for all). For Firefox it registers native messaging and can open `about:debugging` so you can **Load Temporary Add-on** once.
@@ -25,7 +25,7 @@ Windows may show a SmartScreen ("Windows protected your PC") warning because the
 ## Android use
 
 1. Go to [Releases](https://github.com/redubbledd1-ops/Downloader/releases)
-2. Download `Downloader-1.1.0.apk` — this is the **Android phone/tablet app** (not a browser extension)
+2. Download `Downloader-1.2.2.apk` — this is the **Android phone/tablet app** (not a browser extension)
 3. Open the file on your device → allow install from unknown sources if asked → install
 
 The Chrome/Edge/Firefox extension talks to the Windows app via native messaging. On Android, the Firefox extension opens the APK app (`downoader://download?url=…`). You can also share a link to the Downloader app.
@@ -35,23 +35,23 @@ The Chrome/Edge/Firefox extension talks to the Windows app via native messaging.
 Built files land in `dist\` locally (gitignored). Upload them to **GitHub Releases** — do not commit the `.exe` / `.apk` into the repo.
 
 ```powershell
-# Windows Setup → dist\DownloaderSetup-1.1.0.exe
+# Windows Setup → dist\DownloaderSetup-1.2.2.exe
 powershell -ExecutionPolicy Bypass -File scripts\build-windows-installer.ps1
 
-# Android APK → dist\Downloader-1.1.0.apk
+# Android APK → dist\Downloader-1.2.2.apk
 flutter build apk --release
 New-Item -ItemType Directory -Force -Path dist | Out-Null
-Copy-Item -Force build\app\outputs\flutter-apk\app-release.apk dist\Downloader-1.1.0.apk
+Copy-Item -Force build\app\outputs\flutter-apk\app-release.apk dist\Downloader-1.2.2.apk
 
 # Create GitHub release (from main)
 git push origin main
-gh release create v1.1.0 "dist\DownloaderSetup-1.1.0.exe" "dist\Downloader-1.1.0.apk" --title "Downloader 1.1.0" --notes "Windows installer + Android APK (Firefox desktop + Android extension support)"
+gh release create v1.2.2 "dist\DownloaderSetup-1.2.2.exe" "dist\Downloader-1.2.2.apk" --title "Downloader 1.2.2" --notes "Windows installer + Android APK (TikTok, live extension sync, Android download fix)"
 
 # Or add files to an existing release
-gh release upload v1.1.0 "dist\Downloader-1.1.0.apk" --clobber
+gh release upload v1.2.2 "dist\Downloader-1.2.2.apk" --clobber
 ```
 
-Release page: `https://github.com/redubbledd1-ops/Downloader/releases/tag/v1.1.0`
+Release page: `https://github.com/redubbledd1-ops/Downloader/releases/tag/v1.2.2`
 
 ## Developers — build the Windows installer
 
@@ -64,7 +64,7 @@ This will:
 1. `flutter build windows --release`
 2. Download yt-dlp / ffmpeg / deno into `build\...\Release\tools\`
 3. Compile the native host into `Release\host\`
-4. Build Setup.exe with Inno Setup → `dist\DownloaderSetup-1.1.0.exe`
+4. Build Setup.exe with Inno Setup → `dist\DownloaderSetup-1.2.2.exe`
 
 Requires Flutter SDK + Dart SDK. Inno Setup 6+ is installed via winget if missing.
 

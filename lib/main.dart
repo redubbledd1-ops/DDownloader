@@ -98,6 +98,7 @@ class _DownoaderAppState extends State<DownoaderApp> {
       darkTheme: buildAppTheme(Brightness.dark),
       themeMode: _themeMode,
       home: HomePage(
+        key: const ValueKey('home'),
         isDarkMode: _themeMode == ThemeMode.dark,
         onToggleDarkMode: _toggleDarkMode,
         language: _language,
@@ -891,7 +892,12 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    // canPop: false → Android-back op root finish’t de activity niet
+    // (dat oogt als minimaliseren + herladen). Home-knop blijft gewoon werken.
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: const _AppBarTitle(),
         actions: [
@@ -955,12 +961,21 @@ class _HomePageState extends State<HomePage> {
                   Expanded(
                     child: TextField(
                       controller: _urlController,
+                      keyboardType: TextInputType.url,
+                      textInputAction: TextInputAction.done,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      smartDashesType: SmartDashesType.disabled,
+                      smartQuotesType: SmartQuotesType.disabled,
                       decoration: InputDecoration(
                         labelText: t.urlLabel,
                         border: const OutlineInputBorder(),
                       ),
                       enabled: !_busy,
-                      onSubmitted: (_) => _startDownload(),
+                      // Geen auto-download op toetsenbord-actie: sommige IME’s
+                      // sturen bij spatie/enter een submit → zware init →
+                      // activity weg + herladen.
+                      onSubmitted: (_) => FocusScope.of(context).unfocus(),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -1175,6 +1190,7 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
       ),
+    ),
     );
   }
 }

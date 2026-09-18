@@ -121,11 +121,36 @@ class MainActivity : FlutterActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // Alleen echte share/deeplink-URL’s doorgeven. MAIN/LAUNCHER of lege
+        // intents negeren — die kunnen de UI laten “herladen” terwijl het
+        // proces blijft draaien.
         val payload = extractIncoming(intent) ?: return
         if (intentChannel != null) {
             intentChannel?.invokeMethod("incomingUrl", payload)
         } else {
             pendingIntent = payload
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        // Root-back mag de activity niet finishen: dat oogt als minimaliseren
+        // + herstart bij terugkomen. Flutter PopScope houdt de route vast;
+        // als de engine toch finish wil, houden we de taak op de voorgrond.
+        val dispatcher = onBackPressedDispatcher
+        if (dispatcher.hasEnabledCallbacks()) {
+            super.onBackPressed()
+            return
+        }
+        // Geen Flutter-callback: blijf in de app (Home-knop mag wél weg).
+    }
+
+    override fun finish() {
+        // Config-change recreate mag wél. Andere finish()-calls (IME/framework
+        // quirks) negeren we: géén moveTaskToBack — dat oogt als minimaliseren
+        // terwijl het proces blijft draaien en bij terugkeer opnieuw laadt.
+        if (isChangingConfigurations) {
+            super.finish()
         }
     }
 

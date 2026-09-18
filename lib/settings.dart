@@ -10,6 +10,7 @@ import 'models.dart';
 
 class Settings {
   static const _keyDownloadDir = 'download_dir';
+  static const _keyYtDlpUpdateCheck = 'ytdlp_update_check';
   static const _keyDarkMode = 'dark_mode';
   static const _keyDownloaded = 'downloaded_items';
   static const _keyPlaylistMode = 'playlist_mode';
@@ -149,6 +150,17 @@ class Settings {
       }
     } catch (_) {}
     return null;
+  }
+
+  /// Wanneer we voor het laatst naar een nieuwe yt-dlp keken (ms sinds epoch).
+  static Future<int> getYtDlpUpdateCheck() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_keyYtDlpUpdateCheck) ?? 0;
+  }
+
+  static Future<void> setYtDlpUpdateCheck(int millis) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_keyYtDlpUpdateCheck, millis);
   }
 
   static Future<void> setDownloadDir(String dir) async {

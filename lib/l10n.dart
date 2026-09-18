@@ -125,6 +125,93 @@ class L10n {
     AppLanguage.pt => 'Salvar registro como arquivo de texto',
   };
 
+  String get errInvalidUrl => switch (language) {
+    AppLanguage.nl => 'Dat is geen geldige URL. Plak een link naar een video.',
+    AppLanguage.en => 'That is not a valid URL. Paste a link to a video.',
+    AppLanguage.de => 'Das ist keine gultige URL. Fuge einen Videolink ein.',
+    AppLanguage.fr => "Ce n'est pas une URL valide. Collez un lien vers une video.",
+    AppLanguage.es => 'Esa no es una URL valida. Pega un enlace a un video.',
+    AppLanguage.pt => 'Isso nao e uma URL valida. Cole um link para um video.',
+  };
+
+  String get updateYtDlpTitle => switch (language) {
+    AppLanguage.nl => 'yt-dlp bijwerken',
+    AppLanguage.en => 'Update yt-dlp',
+    AppLanguage.de => 'yt-dlp aktualisieren',
+    AppLanguage.fr => 'Mettre a jour yt-dlp',
+    AppLanguage.es => 'Actualizar yt-dlp',
+    AppLanguage.pt => 'Atualizar o yt-dlp',
+  };
+
+  String updateYtDlpSubtitle(String? version) => switch (language) {
+    AppLanguage.nl =>
+      'Huidige versie: ${version ?? 'onbekend'}. YouTube breekt yt-dlp regelmatig; bijwerken lost 403-fouten meestal op.',
+    AppLanguage.en =>
+      'Current version: ${version ?? 'unknown'}. YouTube breaks yt-dlp regularly; updating usually fixes 403 errors.',
+    AppLanguage.de =>
+      'Aktuelle Version: ${version ?? 'unbekannt'}. YouTube bricht yt-dlp regelmassig; ein Update behebt 403-Fehler meist.',
+    AppLanguage.fr =>
+      'Version actuelle : ${version ?? 'inconnue'}. YouTube casse yt-dlp regulierement ; la mise a jour corrige souvent les erreurs 403.',
+    AppLanguage.es =>
+      'Version actual: ${version ?? 'desconocida'}. YouTube rompe yt-dlp con frecuencia; actualizar suele corregir los errores 403.',
+    AppLanguage.pt =>
+      'Versao atual: ${version ?? 'desconhecida'}. O YouTube quebra o yt-dlp com frequencia; atualizar costuma corrigir erros 403.',
+  };
+
+  String ytDlpUpdated(String version) => switch (language) {
+    AppLanguage.nl => 'yt-dlp bijgewerkt naar $version',
+    AppLanguage.en => 'yt-dlp updated to $version',
+    AppLanguage.de => 'yt-dlp auf $version aktualisiert',
+    AppLanguage.fr => 'yt-dlp mis a jour vers $version',
+    AppLanguage.es => 'yt-dlp actualizado a $version',
+    AppLanguage.pt => 'yt-dlp atualizado para $version',
+  };
+
+  String get ytDlpAlreadyLatest => switch (language) {
+    AppLanguage.nl => 'yt-dlp is al de nieuwste versie',
+    AppLanguage.en => 'yt-dlp is already up to date',
+    AppLanguage.de => 'yt-dlp ist bereits aktuell',
+    AppLanguage.fr => 'yt-dlp est deja a jour',
+    AppLanguage.es => 'yt-dlp ya esta actualizado',
+    AppLanguage.pt => 'o yt-dlp ja esta atualizado',
+  };
+
+  String errUpdateYtDlp(String e) => switch (language) {
+    AppLanguage.nl => 'yt-dlp bijwerken mislukt: $e',
+    AppLanguage.en => 'Updating yt-dlp failed: $e',
+    AppLanguage.de => 'yt-dlp-Aktualisierung fehlgeschlagen: $e',
+    AppLanguage.fr => 'Echec de la mise a jour de yt-dlp : $e',
+    AppLanguage.es => 'Error al actualizar yt-dlp: $e',
+    AppLanguage.pt => 'Falha ao atualizar o yt-dlp: $e',
+  };
+
+  String get copyLogsTooltip => switch (language) {
+    AppLanguage.nl => 'Logs kopieren',
+    AppLanguage.en => 'Copy logs',
+    AppLanguage.de => 'Protokolle kopieren',
+    AppLanguage.fr => 'Copier les journaux',
+    AppLanguage.es => 'Copiar registros',
+    AppLanguage.pt => 'Copiar registros',
+  };
+
+  String get shareLogsTooltip => switch (language) {
+    AppLanguage.nl => 'Logs delen',
+    AppLanguage.en => 'Share logs',
+    AppLanguage.de => 'Protokolle teilen',
+    AppLanguage.fr => 'Partager les journaux',
+    AppLanguage.es => 'Compartir registros',
+    AppLanguage.pt => 'Compartilhar registros',
+  };
+
+  String get logsCopied => switch (language) {
+    AppLanguage.nl => 'Logs naar klembord gekopieerd',
+    AppLanguage.en => 'Logs copied to clipboard',
+    AppLanguage.de => 'Protokolle in die Zwischenablage kopiert',
+    AppLanguage.fr => 'Journaux copies dans le presse-papiers',
+    AppLanguage.es => 'Registros copiados al portapapeles',
+    AppLanguage.pt => 'Registros copiados para a area de transferencia',
+  };
+
   String get openDownloadFolderTooltip => switch (language) {
     AppLanguage.nl => 'Open downloadmap',
     AppLanguage.en => 'Open download folder',

@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Houdt het app-proces (en daarmee het yt-dlp/python-kindproces) in leven
@@ -138,7 +139,23 @@ class DownloadKeepAliveService : Service() {
         private const val ACTION_STOP = "com.example.downoader.STOP_KEEPALIVE"
         private const val EXTRA_TEXT = "text"
 
+        // Downloaden en yt-dlp bijwerken kunnen los van elkaar bescherming
+        // vragen. Zonder telling zou de eerste die klaar is de service voor de
+        // ander ook afzetten.
+        private val holders = AtomicInteger(0)
+
+        /** Vraagt bescherming aan; elke start hoort een stop te krijgen. */
         fun start(context: Context, text: String) {
+            holders.incrementAndGet()
+            send(context, text)
+        }
+
+        /** Werkt alleen de notificatietekst bij, zonder de telling te raken. */
+        fun updateText(context: Context, text: String) {
+            if (holders.get() > 0) send(context, text)
+        }
+
+        private fun send(context: Context, text: String) {
             val intent = Intent(context, DownloadKeepAliveService::class.java)
                 .putExtra(EXTRA_TEXT, text)
             try {
@@ -154,6 +171,8 @@ class DownloadKeepAliveService : Service() {
         }
 
         fun stop(context: Context) {
+            if (holders.decrementAndGet() > 0) return
+            holders.set(0)
             try {
                 context.startService(
                     Intent(context, DownloadKeepAliveService::class.java)

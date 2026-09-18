@@ -121,27 +121,79 @@ class PlaylistProbeResult {
 
 class YtDlpService {
   bool _androidReady = false;
-  // Eén gedeelde init-Future: `exeExists()` en `ensureYtDlp()` worden vlak na
-  // elkaar aangeroepen, en twee parallelle 'init'-calls zouden het uitpakken
-  // van python/ffmpeg dubbel laten starten.
+  // Eén gedeelde init-Future: warmUp() en ensureYtDlp() kunnen vlak na elkaar
+  // binnenkomen, en twee parallelle 'init'-calls zouden het uitpakken van
+  // python/ffmpeg dubbel laten starten.
   Future<void>? _androidInit;
 
-  // Enkel nog relevant voor Android: op desktop wordt yt-dlp bij het
-  // eerste gebruik automatisch gedownload (zie ensureYtDlp hieronder), dus
-  // daar is niets meer dat blijvend "niet beschikbaar" kan zijn.
-  String get unavailableMessage =>
-      'yt-dlp kon niet worden geïnitialiseerd op dit toestel.';
+  // Er zat hier een exeExists()-voorcheck die de init-fout opving en alleen een
+  // kale "niet beschikbaar"-zin teruggaf; de echte oorzaak kwam daardoor nooit
+  // bij de gebruiker aan. ensureYtDlp() gooit wel met details.
 
   /// Start het uitpakken van python/ffmpeg/yt-dlp alvast bij het openen van de
   /// app. Anders valt dat zware werk samen met de Download-tik, precies op het
   /// moment dat er ook een kindproces gestart wordt.
-  Future<void> warmUp() async {
+  Future<void> warmUp({void Function(String)? onLog}) async {
     if (!Platform.isAndroid) return;
     try {
       await ensureYtDlp();
     } catch (_) {
       // Stil: de echte foutmelding komt bij de eerste download.
+      return;
     }
+    // De meegeleverde yt-dlp veroudert snel; YouTube breekt de extractie om de
+    // paar weken en dat geeft dan 403's of "Requested format is not available".
+    // Hoogstens een keer per dag kijken, op de achtergrond, zodat het nooit een
+    // download ophoudt.
+    try {
+      final last = await Settings.getYtDlpUpdateCheck();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - last < const Duration(days: 1).inMilliseconds) return;
+      await Settings.setYtDlpUpdateCheck(now);
+      final result = await updateAndroidYtDlp();
+      if (result.updated) {
+        onLog?.call('yt-dlp bijgewerkt naar ${result.version ?? "nieuwste"}.');
+      }
+    } catch (e) {
+      onLog?.call('yt-dlp bijwerken overgeslagen ($e).');
+    }
+  }
+
+  /// Versie van de yt-dlp die nu op het toestel staat, of null.
+  Future<String?> androidYtDlpVersion() async {
+    if (!Platform.isAndroid) return null;
+    try {
+      return await _androidChannel.invokeMethod<String>('version');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Haalt de nieuwste yt-dlp op. Geeft (bijgewerkt, versie) terug.
+  Future<({bool updated, String? version})> updateAndroidYtDlp() async {
+    final raw = await _androidChannel.invokeMethod<Map<Object?, Object?>>(
+      'update',
+    );
+    final map = Map<String, dynamic>.from(raw ?? const {});
+    return (
+      updated: map['updated'] == true,
+      version: map['version'] as String?,
+    );
+  }
+
+  /// Opent de Android-deelsheet met platte tekst (logs naar PC/mail/Drive).
+  Future<void> shareText(String text, {String? subject}) async {
+    if (!Platform.isAndroid) return;
+    await _androidChannel.invokeMethod('shareText', {
+      'text': text,
+      'subject': subject,
+    });
+  }
+
+  /// Opent de Android-deelsheet met een bestand als bijlage.
+  Future<void> shareFile(String path) async {
+    if (!Platform.isAndroid) return;
+    await _androidChannel.invokeMethod('shareFile', {'path': path});
   }
 
   /// Schiet een lopend yt-dlp-kindproces af. Zonder dit blijft python draaien
@@ -151,19 +203,6 @@ class YtDlpService {
     try {
       await _androidChannel.invokeMethod('cancel');
     } catch (_) {}
-  }
-
-  Future<bool> exeExists() async {
-    if (Platform.isAndroid) {
-      if (_androidReady) return true;
-      try {
-        await ensureYtDlp();
-        return true;
-      } catch (_) {
-        return false;
-      }
-    }
-    return true;
   }
 
   String? _resolvedYtDlpPath;

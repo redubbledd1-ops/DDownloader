@@ -21,7 +21,7 @@ Set-Location $root
 $releaseDir = Join-Path $root "build\windows\x64\runner\Release"
 $distDir = Join-Path $root "dist"
 $legacyRelease = Join-Path $root "Release"
-$version = "1.2.4"
+$version = "2.3.0"
 
 function Find-ISCC {
     $candidates = @(

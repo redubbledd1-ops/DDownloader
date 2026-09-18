@@ -42,6 +42,23 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+
+            // Flutter zet standaard isMinifyEnabled = true voor release. Dat
+            // heeft deze app twee keer onbruikbaar gemaakt, beide keren alleen
+            // in release en beide keren pas zichtbaar als een onleesbare
+            // NoClassDefFoundError: eerst Jackson in youtubedl-android, daarna
+            // Class.newInstance() in commons-compress. Beide leunen op
+            // reflectie, waar R8 per definitie blind voor is.
+            //
+            // De winst staat er niet tegenover: van de ~174 MB is verreweg het
+            // meeste de native python/ffmpeg-payload, die R8 niet aanraakt.
+            // Het krimpen van de dex levert hooguit een paar MB op.
+            //
+            // proguard-rules.pro blijft bestaan en dekt de nu bekende gevallen,
+            // dus wie dit weer aan wil zetten kan dat - maar test dan een
+            // echte release-build op een toestel, niet alleen debug.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
@@ -60,4 +77,9 @@ dependencies {
     val youtubedlAndroid = "0.18.1"
     implementation("io.github.junkfood02.youtubedl-android:library:$youtubedlAndroid")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:$youtubedlAndroid")
+    // Transitief al aanwezig, maar expliciet nodig om SharedPrefsHelper te
+    // kunnen aanroepen: daar houdt de library bij welke yt-dlp-versie ze denkt
+    // te hebben, en die markering moeten we kunnen resetten als hij niet meer
+    // klopt met het binaire bestand.
+    implementation("io.github.junkfood02.youtubedl-android:common:$youtubedlAndroid")
 }

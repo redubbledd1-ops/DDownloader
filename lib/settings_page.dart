@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'folder_history_page.dart';
 import 'l10n.dart';
@@ -23,6 +24,9 @@ class SettingsPage extends StatefulWidget {
   final bool showLogs;
   final ValueChanged<bool> onToggleShowLogs;
   final VoidCallback onSaveLogs;
+  final VoidCallback onShareLogs;
+  final Future<String?> Function() onUpdateYtDlp;
+  final Future<String?> Function() ytDlpVersion;
   final List<String> logs;
   final Listenable logsTick;
 
@@ -41,6 +45,9 @@ class SettingsPage extends StatefulWidget {
     required this.showLogs,
     required this.onToggleShowLogs,
     required this.onSaveLogs,
+    required this.onShareLogs,
+    required this.onUpdateYtDlp,
+    required this.ytDlpVersion,
     required this.logs,
     required this.logsTick,
   });
@@ -51,6 +58,12 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   late String _downloadDir = widget.downloadDir;
+  // Eigen kopie: de schakelaar zat eerder direct aan widget.showLogs vast, maar
+  // deze pagina is een gepushte route. Een setState in HomePage rebuildt die
+  // niet, dus je moest terug en opnieuw openen voordat het logpaneel verscheen.
+  late bool _showLogs = widget.showLogs;
+  String? _ytDlpVersion;
+  bool _updatingYtDlp = false;
   final _logScrollController = ScrollController();
   String _dataDir = '';
 
@@ -60,6 +73,11 @@ class _SettingsPageState extends State<SettingsPage> {
     Settings.appDataDir().then((dir) {
       if (mounted) setState(() => _dataDir = dir.path);
     });
+    if (Platform.isAndroid) {
+      widget.ytDlpVersion().then((v) {
+        if (mounted) setState(() => _ytDlpVersion = v);
+      });
+    }
   }
 
   @override
@@ -69,6 +87,14 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   L10n get t => L10n(widget.language);
+
+  Future<void> _copyLogs() async {
+    await Clipboard.setData(ClipboardData(text: widget.logs.join('\n')));
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(t.logsCopied)));
+  }
 
   Future<void> _pickDir() async {
     final selected = await FilePicker.platform.getDirectoryPath(
@@ -261,14 +287,61 @@ class _SettingsPageState extends State<SettingsPage> {
                 onChanged: widget.onChangeAutoDownloadOnClick,
               ),
             ],
+            if (Platform.isAndroid) ...[
+              _SectionHeader(title: 'yt-dlp'),
+              ListTile(
+                leading: _updatingYtDlp
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.system_update_alt),
+                title: Text(t.updateYtDlpTitle),
+                subtitle: Text(t.updateYtDlpSubtitle(_ytDlpVersion)),
+                onTap: _updatingYtDlp
+                    ? null
+                    : () async {
+                        setState(() => _updatingYtDlp = true);
+                        final version = await widget.onUpdateYtDlp();
+                        if (!mounted) return;
+                        setState(() {
+                          _updatingYtDlp = false;
+                          if (version != null) _ytDlpVersion = version;
+                        });
+                      },
+              ),
+            ],
             _SectionHeader(title: t.logsTooltip),
             SwitchListTile(
               title: Text(t.showLogsLabel),
               subtitle: Text(t.showLogsSubtitle),
-              value: widget.showLogs,
-              onChanged: widget.onToggleShowLogs,
+              value: _showLogs,
+              onChanged: (value) {
+                setState(() => _showLogs = value);
+                widget.onToggleShowLogs(value);
+              },
             ),
-            if (widget.showLogs)
+            if (_showLogs) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton.icon(
+                      icon: const Icon(Icons.copy_all, size: 18),
+                      label: Text(t.copyLogsTooltip),
+                      onPressed: widget.logs.isEmpty ? null : _copyLogs,
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton.icon(
+                      icon: const Icon(Icons.share, size: 18),
+                      label: Text(t.shareLogsTooltip),
+                      onPressed: widget.logs.isEmpty ? null : widget.onShareLogs,
+                    ),
+                  ],
+                ),
+              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                 child: ListenableBuilder(
@@ -295,17 +368,22 @@ class _SettingsPageState extends State<SettingsPage> {
                                 style: const TextStyle(color: Colors.grey),
                               ),
                             )
-                          : Scrollbar(
-                              controller: _logScrollController,
-                              child: ListView.builder(
+                          // SelectionArea maakt de regels met de vinger
+                          // selecteerbaar; los daarvan blijft de Kopieer-knop
+                          // hierboven de snelste weg naar het hele log.
+                          : SelectionArea(
+                              child: Scrollbar(
                                 controller: _logScrollController,
-                                itemCount: widget.logs.length,
-                                itemBuilder: (_, i) => Text(
-                                  widget.logs[i],
-                                  style: const TextStyle(
-                                    color: Colors.greenAccent,
-                                    fontFamily: 'monospace',
-                                    fontSize: 11,
+                                child: ListView.builder(
+                                  controller: _logScrollController,
+                                  itemCount: widget.logs.length,
+                                  itemBuilder: (_, i) => Text(
+                                    widget.logs[i],
+                                    style: const TextStyle(
+                                      color: Colors.greenAccent,
+                                      fontFamily: 'monospace',
+                                      fontSize: 11,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -314,6 +392,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   },
                 ),
               ),
+            ],
             ListTile(
               leading: const Icon(Icons.download_for_offline_outlined),
               title: Text(t.saveLogsTooltip),

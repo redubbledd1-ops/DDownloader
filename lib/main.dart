@@ -335,7 +335,7 @@ class _HomePageState extends State<HomePage> {
       // Python/ffmpeg uitpakken nu vast starten. Deed de Download-knop dat
       // zelf, dan viel dat zware werk samen met het starten van het
       // yt-dlp-kindproces en schoot Android het app-proces af.
-      unawaited(_service.warmUp());
+      unawaited(_service.warmUp(onLog: _addLog));
     }
     _bootstrap();
   }
@@ -641,15 +641,17 @@ class _HomePageState extends State<HomePage> {
     if (url.isEmpty) {
       final clipboard = await Clipboard.getData(Clipboard.kTextPlain);
       final clipboardText = clipboard?.text?.trim() ?? '';
-      if (clipboardText.isNotEmpty) {
+      // Alleen overnemen als het klembord echt een link bevat. Zonder deze
+      // check belandde bijvoorbeeld een net gekopieerd logblok in het veld en
+      // probeerde yt-dlp dat als URL te downloaden.
+      if (_looksLikeUrl(clipboardText)) {
         url = clipboardText;
         _urlController.text = url;
       }
     }
     if (url.isEmpty) return;
-
-    if (!await _service.exeExists()) {
-      _showError(_service.unavailableMessage);
+    if (!_isPlausibleUrl(url)) {
+      _showError(t.errInvalidUrl);
       return;
     }
 
@@ -683,6 +685,8 @@ class _HomePageState extends State<HomePage> {
       _showError(t.downloadFailed('$e'));
       return;
     }
+
+    await _ensureFreshYtDlp();
 
     setState(() {
       _busy = true;
@@ -914,9 +918,101 @@ class _HomePageState extends State<HomePage> {
       final file = File('$dir${Platform.pathSeparator}$fileName');
       await file.writeAsString(_logs.join('\n'));
       _showInfo(t.logSaved(file.path));
-      await _service.openFolder(file.path);
+      if (Platform.isAndroid) {
+        // Niet openFolder(): dat is ACTION_VIEW met "resource/folder", waar
+        // geen enkele app iets mee kan, en de terugval opent een .txt in een
+        // lijst willekeurige apps. De deelsheet geeft wel echte bestemmingen
+        // (mail, Drive, Nearby Share, koppeling met de PC).
+        await _service.shareFile(file.path);
+      } else {
+        await _service.openFolder(file.path);
+      }
     } catch (e) {
       _showError(t.errSaveLog('$e'));
+    }
+  }
+
+  /// Haalt de nieuwste yt-dlp op. Geeft de nieuwe versie terug, of null.
+  /// Streng: gebruikt voor klembord-inhoud die we ongevraagd overnemen.
+  bool _looksLikeUrl(String text) {
+    if (!_isPlausibleUrl(text)) return false;
+    final uri = Uri.tryParse(text);
+    return uri != null &&
+        (uri.scheme == 'http' || uri.scheme == 'https') &&
+        uri.host.isNotEmpty;
+  }
+
+  /// Soepel: laat 'youtube.com/watch?v=x' zonder schema door, maar houdt
+  /// meerregelige tekst en plakfouten tegen.
+  bool _isPlausibleUrl(String text) {
+    if (text.isEmpty || text.length > 2048) return false;
+    return !text.contains(RegExp(r'\s'));
+  }
+
+  /// yt-dlp verouderdt snel: een build van maanden oud geeft op YouTube
+  /// "HTTP Error 403" of "Requested format is not available". De versiestring
+  /// is een datum (2025.11.12), dus de leeftijd is direct af te lezen.
+  Future<void> _ensureFreshYtDlp() async {
+    if (!Platform.isAndroid) return;
+    final version = await _service.androidYtDlpVersion();
+    if (version == null) return;
+    final parts = version.split('.');
+    if (parts.length < 3) return;
+    final year = int.tryParse(parts[0]);
+    final month = int.tryParse(parts[1]);
+    final day = int.tryParse(parts[2].split('-').first);
+    if (year == null || month == null || day == null) return;
+    final age = DateTime.now().difference(DateTime(year, month, day)).inDays;
+    if (age < 30) return;
+    setState(() => _status = 'yt-dlp bijwerken...');
+    _addLog('yt-dlp $version is $age dagen oud, bijwerken...');
+    try {
+      final result = await _service.updateAndroidYtDlp();
+      await Settings.setYtDlpUpdateCheck(DateTime.now().millisecondsSinceEpoch);
+      _addLog(
+        result.updated
+            ? 'yt-dlp bijgewerkt naar ${result.version ?? "nieuwste"}.'
+            : 'yt-dlp was al de nieuwste versie ($version).',
+      );
+    } catch (e) {
+      _addLog('FOUT: yt-dlp bijwerken mislukt: $e');
+    }
+  }
+
+  Future<String?> _updateYtDlp() async {
+    try {
+      final result = await _service.updateAndroidYtDlp();
+      final version = result.version;
+      if (result.updated && version != null) {
+        _addLog('yt-dlp bijgewerkt naar $version.');
+        _showInfo(t.ytDlpUpdated(version));
+      } else {
+        _showInfo(t.ytDlpAlreadyLatest);
+      }
+      await Settings.setYtDlpUpdateCheck(DateTime.now().millisecondsSinceEpoch);
+      return version;
+    } catch (e) {
+      _addLog('FOUT: yt-dlp bijwerken mislukt: $e');
+      _showError(t.errUpdateYtDlp('$e'));
+      return null;
+    }
+  }
+
+  Future<void> _shareLogs() async {
+    if (_logs.isEmpty) {
+      _showError(t.noLogsToSave);
+      return;
+    }
+    final text = _logs.join('\n');
+    try {
+      if (Platform.isAndroid) {
+        await _service.shareText(text, subject: 'Downloader logs');
+      } else {
+        await Clipboard.setData(ClipboardData(text: text));
+        _showInfo(t.logsCopied);
+      }
+    } catch (e) {
+      _showError(t.errSaveLog('\$e'));
     }
   }
 
@@ -1063,6 +1159,9 @@ class _HomePageState extends State<HomePage> {
                     onToggleShowLogs: (value) =>
                         setState(() => _showLogs = value),
                     onSaveLogs: _saveLogs,
+                    onShareLogs: _shareLogs,
+                    onUpdateYtDlp: _updateYtDlp,
+                    ytDlpVersion: _service.androidYtDlpVersion,
                     logs: _logs,
                     logsTick: _logsTick,
                   ),

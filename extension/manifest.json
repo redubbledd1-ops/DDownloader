@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Downloader",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Download de huidige tab via de lokale Downloader-app (Windows native host of Android-app).",
   "action": {
     "default_title": "Downloader",
@@ -24,7 +24,18 @@
     "activeTab",
     "tabs",
     "storage",
-    "notifications"
+    "notifications",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://*.tiktok.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["*://*.tiktok.com/*"],
+      "js": ["content/tiktok.js"],
+      "run_at": "document_idle"
+    }
   ],
   "background": {
     "service_worker": "background.js",

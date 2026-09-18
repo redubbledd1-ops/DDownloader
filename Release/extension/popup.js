@@ -7,8 +7,8 @@ const downloadDirEl = document.getElementById("downloadDir");
 const qualityEl = document.getElementById("quality");
 const qualityField = document.getElementById("qualityField");
 const qualityRow = document.getElementById("qualityRow");
+const preferredQualityRow = document.getElementById("preferredQualityRow");
 const refreshBtn = document.getElementById("refresh");
-const saveBtn = document.getElementById("saveSettings");
 const sendBtn = document.getElementById("sendToApp");
 const downloadBtn = document.getElementById("downloadHere");
 const autoDownloadEl = document.getElementById("autoDownload");
@@ -26,6 +26,11 @@ const progressEl = document.getElementById("progress");
 let formats = [];
 let busy = false;
 let lastDownloadedPath = null;
+let hostReady = false;
+let isAndroid = false;
+let settingsLoaded = false;
+let saveTimer = null;
+let saveInFlight = false;
 
 function setStatus(text, kind = "") {
   statusEl.hidden = !text;
@@ -39,8 +44,12 @@ function isHostMissingError(e) {
   const m = ((e && e.message) || String(e)).toLowerCase();
   return (
     m.includes("native messaging host") ||
+    m.includes("native application") ||
+    m.includes("no such native") ||
     m.includes("host niet bereikbaar") ||
-    m.includes("verbinding verbroken")
+    m.includes("verbinding verbroken") ||
+    m.includes("access denied") ||
+    m.includes("not found")
   );
 }
 
@@ -70,7 +79,6 @@ function setBusy(value) {
   busy = value;
   const hasUrl = Boolean(urlEl.value.trim());
   refreshBtn.disabled = value;
-  saveBtn.disabled = value;
   sendBtn.disabled = value || !hasUrl;
   downloadBtn.disabled = value || !hasUrl;
   formatEl.disabled = value;
@@ -138,10 +146,12 @@ function fillQualities(list) {
 
 function updateFormatUi() {
   const isMp3 = formatEl.value === "mp3";
-  // visibility:hidden houdt de layout-ruimte — bij MP3 verdwijnt de
-  // kwaliteitsrij daarom helemaal (display via [hidden]).
+  // [hidden] + CSS !important: anders wint .row { display:flex } van het
+  // native hidden-gedrag en blijft de kwaliteitsrij zichtbaar bij MP3.
   if (qualityRow) qualityRow.hidden = isMp3;
-  qualityField.style.visibility = "";
+  if (qualityField) qualityField.hidden = isMp3;
+  if (preferredQualityRow) preferredQualityRow.hidden = isMp3;
+  if (refreshBtn) refreshBtn.hidden = isMp3;
   audioOnlyEl.checked = isMp3;
 }
 
@@ -154,6 +164,10 @@ function chosenFormatId() {
     : `${chosen.formatId}+bestaudio/best`;
 }
 
+function hasNativeMessaging() {
+  return typeof chrome.runtime.connectNative === "function";
+}
+
 /**
  * @param {object} message
  * @param {(msg: object) => void} [onMessage]
@@ -161,6 +175,14 @@ function chosenFormatId() {
  */
 function sendNative(message, onMessage) {
   return new Promise((resolve, reject) => {
+    if (!hasNativeMessaging()) {
+      reject(
+        new Error(
+          "Native messaging niet beschikbaar (Firefox Android: gebruik Naar App)."
+        )
+      );
+      return;
+    }
     let port;
     try {
       port = chrome.runtime.connectNative(HOST_NAME);
@@ -228,11 +250,70 @@ function sendNative(message, onMessage) {
   });
 }
 
+function isTikTokUrl(url) {
+  try {
+    return /(^|\.)tiktok\.com$/i.test(new URL(url).hostname);
+  } catch (_) {
+    return false;
+  }
+}
+
+function isTikTokVideoUrl(url) {
+  return /\/@[^/?#]+\/video\/\d+/i.test(url || "");
+}
+
+// TikTok For You: tab-URL is vaak alleen tiktok.com/ — content script
+// reconstrueert de canonieke /@user/video/id-link van de zichtbare video.
+async function resolveTikTokDownloadUrl(tab) {
+  if (!tab?.id) return null;
+
+  const ask = async () => {
+    const res = await chrome.tabs.sendMessage(tab.id, {
+      type: "getDownloadUrl",
+    });
+    return res?.url || null;
+  };
+
+  try {
+    const url = await ask();
+    if (url) return url;
+  } catch (_) {
+    // Script nog niet geladen (tab open vóór extentie-installatie/reload).
+  }
+
+  if (!chrome.scripting?.executeScript) return null;
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ["content/tiktok.js"],
+    });
+    return await ask();
+  } catch (_) {
+    try {
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () =>
+          typeof globalThis.__downoaderDetectTikTok === "function"
+            ? globalThis.__downoaderDetectTikTok()
+            : null,
+      });
+      return result || null;
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
 async function loadActiveTabUrl() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tab?.url && /^https?:/i.test(tab.url)) {
-    urlEl.value = tab.url;
+  if (!tab?.url || !/^https?:/i.test(tab.url)) return;
+
+  let url = tab.url;
+  if (isTikTokUrl(tab.url)) {
+    const detected = await resolveTikTokDownloadUrl(tab);
+    if (detected) url = detected;
   }
+  urlEl.value = url;
 }
 
 async function loadSettings() {
@@ -240,27 +321,64 @@ async function loadSettings() {
   applySettings(res.settings);
 }
 
-async function saveSettings() {
-  setBusy(true);
-  setStatus("Instellingen opslaan…");
+function currentSettingsPatch() {
+  return {
+    downloadDir: downloadDirEl.value.trim(),
+    format: formatEl.value,
+    playlistMode: playlistEl.value,
+    autoDownloadOnClick: autoDownloadEl.checked,
+    preferredVideoQuality: preferredQualityEl.value,
+  };
+}
+
+function scheduleSaveSettings() {
+  if (!settingsLoaded || !hostReady) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    autoSaveSettings().catch(() => {});
+  }, 350);
+}
+
+async function autoSaveSettings() {
+  if (!settingsLoaded || !hostReady) return;
+  if (saveInFlight) {
+    scheduleSaveSettings();
+    return;
+  }
+  saveInFlight = true;
   try {
     const res = await sendNative({
       cmd: "setSettings",
-      settings: {
-        downloadDir: downloadDirEl.value.trim(),
-        format: formatEl.value,
-        playlistMode: playlistEl.value,
-        autoDownloadOnClick: autoDownloadEl.checked,
-        preferredVideoQuality: preferredQualityEl.value,
-      },
+      settings: currentSettingsPatch(),
     });
-    applySettings(res.settings);
-    setStatus("Opgeslagen in app-instellingen.", "ok");
+    if (res && res.settings) applySettings(res.settings);
   } catch (e) {
     setStatus(e.message || String(e), "error");
   } finally {
-    setBusy(false);
+    saveInFlight = false;
   }
+}
+
+function androidAppLink(url, format) {
+  const u = new URL("downoader://download");
+  u.searchParams.set("url", url);
+  if (format) u.searchParams.set("format", format);
+  return u.href;
+}
+
+async function openInAndroidApp(url, format) {
+  const href = androidAppLink(url, format);
+  try {
+    if (chrome.tabs?.create) {
+      await chrome.tabs.create({ url: href });
+      return true;
+    }
+  } catch (_) {}
+  try {
+    window.open(href, "_blank");
+    return true;
+  } catch (_) {}
+  return false;
 }
 
 async function refreshFormats() {
@@ -290,6 +408,21 @@ async function sendToApp() {
   const url = urlEl.value.trim();
   if (!url) {
     setStatus("Geen URL.", "error");
+    return;
+  }
+  if (isAndroid || !hasNativeMessaging()) {
+    setBusy(true);
+    try {
+      const opened = await openInAndroidApp(url, formatEl.value);
+      setStatus(
+        opened
+          ? "Downloader-app geopend met deze URL."
+          : "Kon de Android-app niet openen. Installeer Downloader.",
+        opened ? "ok" : "error"
+      );
+    } finally {
+      setBusy(false);
+    }
     return;
   }
   setBusy(true);
@@ -383,6 +516,10 @@ async function downloadHere({ auto = false } = {}) {
     setStatus("Alleen http(s)-URL’s kunnen gedownload worden.", "error");
     return;
   }
+  if (isAndroid || !hasNativeMessaging()) {
+    await sendToApp();
+    return;
+  }
   attachDownloadListener();
   setBusy(true);
   hideDownloadedActions();
@@ -427,17 +564,25 @@ async function downloadHere({ auto = false } = {}) {
   // ook als deze popup inmiddels gesloten en heropend is.
 }
 
-formatEl.addEventListener("change", updateFormatUi);
+formatEl.addEventListener("change", () => {
+  updateFormatUi();
+  scheduleSaveSettings();
+});
 audioOnlyEl.addEventListener("change", () => {
   formatEl.value = audioOnlyEl.checked ? "mp3" : "mp4";
   updateFormatUi();
+  scheduleSaveSettings();
 });
 directDownloadEnabledEl.addEventListener("change", () => {
   applyDirectDownloadEnabled(directDownloadEnabledEl.checked);
   saveDirectDownloadEnabled(directDownloadEnabledEl.checked);
 });
+playlistEl.addEventListener("change", scheduleSaveSettings);
+preferredQualityEl.addEventListener("change", scheduleSaveSettings);
+autoDownloadEl.addEventListener("change", scheduleSaveSettings);
+downloadDirEl.addEventListener("input", scheduleSaveSettings);
+downloadDirEl.addEventListener("change", scheduleSaveSettings);
 refreshBtn.addEventListener("click", refreshFormats);
-saveBtn.addEventListener("click", saveSettings);
 sendBtn.addEventListener("click", sendToApp);
 downloadBtn.addEventListener("click", () => downloadHere({ auto: false }));
 openFolderBtn.addEventListener("click", async () => {
@@ -465,13 +610,42 @@ urlEl.addEventListener("input", () => {
 
 (async () => {
   await loadActiveTabUrl();
+  try {
+    const info = await chrome.runtime.getPlatformInfo();
+    isAndroid = info?.os === "android";
+  } catch (_) {
+    isAndroid = false;
+  }
+  if (isAndroid) {
+    const settingsBlock = document.querySelector("details.settings");
+    if (settingsBlock) settingsBlock.hidden = true;
+    downloadBtn.hidden = true;
+    sendBtn.textContent = "Naar App";
+  }
   const directDownloadEnabled = await loadDirectDownloadEnabled();
   directDownloadEnabledEl.checked = directDownloadEnabled;
-  applyDirectDownloadEnabled(directDownloadEnabled);
+  applyDirectDownloadEnabled(!isAndroid && directDownloadEnabled);
   updateFormatUi();
   setBusy(true);
   showGithubLink(false);
   try {
+    if (isAndroid || !hasNativeMessaging()) {
+      setBusy(false);
+      if (!urlEl.value.trim()) {
+        setStatus("Geen downloadbare URL op deze tab.", "error");
+      } else if (
+        isTikTokUrl(urlEl.value) &&
+        !isTikTokVideoUrl(urlEl.value)
+      ) {
+        setStatus(
+          "TikTok-feed: scroll naar een video of open de video-pagina, daarna opnieuw proberen.",
+          "error"
+        );
+      } else {
+        setStatus("Klaar. Tik Naar App om in de Downloader-app te openen.", "ok");
+      }
+      return;
+    }
     // Een enkele mislukte/trage eerste ping (bv. door een antivirus-scan
     // op het net gestarte host-proces, of een korte cold-start-vertraging)
     // liet dit voorheen meteen "app niet gevonden" tonen. Eén retry na
@@ -484,7 +658,9 @@ urlEl.addEventListener("input", () => {
       await new Promise((r) => setTimeout(r, 400));
       await sendNative({ cmd: "ping" });
     }
+    hostReady = true;
     await loadSettings();
+    settingsLoaded = true;
 
     // Een download loopt in de background worker door na het sluiten van
     // de popup (zie background.js) — bij heropenen tonen we die
@@ -520,8 +696,21 @@ urlEl.addEventListener("input", () => {
       await downloadHere({ auto: true });
     } else if (!urlEl.value.trim()) {
       setStatus("Verbonden. Geen downloadbare URL op deze tab.", "error");
+    } else if (
+      isTikTokUrl(urlEl.value) &&
+      !isTikTokVideoUrl(urlEl.value)
+    ) {
+      setStatus(
+        "TikTok-feed: scroll naar een video of open de video-pagina, daarna opnieuw proberen.",
+        "error"
+      );
     } else {
-      setStatus("Verbonden.", "ok");
+      setStatus(
+        isTikTokVideoUrl(urlEl.value)
+          ? "Verbonden. TikTok-video gedetecteerd."
+          : "Verbonden.",
+        "ok"
+      );
     }
   } catch (e) {
     if (isHostMissingError(e)) {

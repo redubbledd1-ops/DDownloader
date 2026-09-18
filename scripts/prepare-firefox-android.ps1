@@ -32,6 +32,10 @@ foreach ($name in @("background.js", "popup.js", "popup.html", "popup.css")) {
     }
 }
 Copy-Item -Recurse -Force (Join-Path $src "icons") (Join-Path $OutDir "icons")
+$contentSrc = Join-Path $src "content"
+if (Test-Path $contentSrc) {
+    Copy-Item -Recurse -Force $contentSrc (Join-Path $OutDir "content")
+}
 
 $manifest = Get-Content (Join-Path $src "manifest.json") -Raw -Encoding UTF8 | ConvertFrom-Json
 

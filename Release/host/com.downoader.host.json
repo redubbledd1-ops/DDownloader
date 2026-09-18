@@ -1,9 +1,0 @@
-{
-  "name": "com.downoader.host",
-  "description": "Downloader Native Messaging host (yt-dlp)",
-  "path": "C:\\Users\\Admin\\Desktop\\Downloader\\extension\\host\\downoader_native_host.exe",
-  "type": "stdio",
-  "allowed_origins": [
-    "chrome-extension://meecghmbaeipmpnopapdkknnjcgconeh/"
-  ]
-}

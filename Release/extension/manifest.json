@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Downloader",
-  "version": "1.0.0",
-  "description": "Download de huidige tab via de lokale Downloader Native Messaging host (yt-dlp).",
+  "version": "1.2.0",
+  "description": "Download de huidige tab via de lokale Downloader-app (Windows native host of Android-app).",
   "action": {
     "default_title": "Downloader",
     "default_popup": "popup.html",
@@ -24,10 +24,34 @@
     "activeTab",
     "tabs",
     "storage",
-    "notifications"
+    "notifications",
+    "scripting"
+  ],
+  "host_permissions": [
+    "*://*.tiktok.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["*://*.tiktok.com/*"],
+      "js": ["content/tiktok.js"],
+      "run_at": "document_idle"
+    }
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "scripts": ["background.js"]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "downloader@downoader.app",
+      "strict_min_version": "121.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    },
+    "gecko_android": {
+      "strict_min_version": "121.0"
+    }
   },
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqxMWkbuCAJcBFgEzNpzcCretAtcLxA6nfRXdaJ+0mpxJ75KvjPbOJPkL0i9y9LFkfM9tEkRCJflsO280YWGxkVN7zUPrSbRtN0w9mqBTXPNN0Ck9dMYng879xy5oZRHUuwNnTDYCRlvjhubh7a+LoRUURW2pldKIuiUem+0eanSej5CseRmtyFWeOdL0Z0rLER9pyc2K/euBqhAFpNwRipNMSUfPFB636STEuuh8BR/4OqlqgO8x/HrC/nA2wt/9jgt7KyZFpnFFJExeppH5c/HeZM2u4jDnTDsdB43zqwNsvJ7EvSCqyd3QA0pbE81ia8AVfCvmjHK/IMEni9sYZwIDAQAB"
 }

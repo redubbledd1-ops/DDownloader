@@ -250,11 +250,70 @@ function sendNative(message, onMessage) {
   });
 }
 
+function isTikTokUrl(url) {
+  try {
+    return /(^|\.)tiktok\.com$/i.test(new URL(url).hostname);
+  } catch (_) {
+    return false;
+  }
+}
+
+function isTikTokVideoUrl(url) {
+  return /\/@[^/?#]+\/video\/\d+/i.test(url || "");
+}
+
+// TikTok For You: tab-URL is vaak alleen tiktok.com/ — content script
+// reconstrueert de canonieke /@user/video/id-link van de zichtbare video.
+async function resolveTikTokDownloadUrl(tab) {
+  if (!tab?.id) return null;
+
+  const ask = async () => {
+    const res = await chrome.tabs.sendMessage(tab.id, {
+      type: "getDownloadUrl",
+    });
+    return res?.url || null;
+  };
+
+  try {
+    const url = await ask();
+    if (url) return url;
+  } catch (_) {
+    // Script nog niet geladen (tab open vóór extentie-installatie/reload).
+  }
+
+  if (!chrome.scripting?.executeScript) return null;
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ["content/tiktok.js"],
+    });
+    return await ask();
+  } catch (_) {
+    try {
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () =>
+          typeof globalThis.__downoaderDetectTikTok === "function"
+            ? globalThis.__downoaderDetectTikTok()
+            : null,
+      });
+      return result || null;
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
 async function loadActiveTabUrl() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tab?.url && /^https?:/i.test(tab.url)) {
-    urlEl.value = tab.url;
+  if (!tab?.url || !/^https?:/i.test(tab.url)) return;
+
+  let url = tab.url;
+  if (isTikTokUrl(tab.url)) {
+    const detected = await resolveTikTokDownloadUrl(tab);
+    if (detected) url = detected;
   }
+  urlEl.value = url;
 }
 
 async function loadSettings() {
@@ -574,6 +633,14 @@ urlEl.addEventListener("input", () => {
       setBusy(false);
       if (!urlEl.value.trim()) {
         setStatus("Geen downloadbare URL op deze tab.", "error");
+      } else if (
+        isTikTokUrl(urlEl.value) &&
+        !isTikTokVideoUrl(urlEl.value)
+      ) {
+        setStatus(
+          "TikTok-feed: scroll naar een video of open de video-pagina, daarna opnieuw proberen.",
+          "error"
+        );
       } else {
         setStatus("Klaar. Tik Naar App om in de Downloader-app te openen.", "ok");
       }
@@ -629,8 +696,21 @@ urlEl.addEventListener("input", () => {
       await downloadHere({ auto: true });
     } else if (!urlEl.value.trim()) {
       setStatus("Verbonden. Geen downloadbare URL op deze tab.", "error");
+    } else if (
+      isTikTokUrl(urlEl.value) &&
+      !isTikTokVideoUrl(urlEl.value)
+    ) {
+      setStatus(
+        "TikTok-feed: scroll naar een video of open de video-pagina, daarna opnieuw proberen.",
+        "error"
+      );
     } else {
-      setStatus("Verbonden.", "ok");
+      setStatus(
+        isTikTokVideoUrl(urlEl.value)
+          ? "Verbonden. TikTok-video gedetecteerd."
+          : "Verbonden.",
+        "ok"
+      );
     }
   } catch (e) {
     if (isHostMissingError(e)) {

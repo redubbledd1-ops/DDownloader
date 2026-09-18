@@ -191,7 +191,7 @@ Future<void> handleMessage(Map<String, dynamic> msg) async {
       final settings = await readSettings();
       await writeMessage({
         'ok': true,
-        'version': '2.3.0',
+        'version': '2.3.1',
         'hostPath': Platform.resolvedExecutable,
         'ytDlp': _quickYtDlpProbe(),
         'prefsPath': prefsFile().path,

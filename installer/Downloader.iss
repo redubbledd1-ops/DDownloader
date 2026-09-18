@@ -4,7 +4,7 @@
 #define MyAppName "Downloader"
 #define MyAppDirName "DownloaderD"
 #ifndef MyAppVersion
-  #define MyAppVersion "2.3.0"
+  #define MyAppVersion "2.3.1"
 #endif
 #define MyAppPublisher "Downloader"
 #define MyAppURL "https://github.com/redubbledd1-ops/Downloader"

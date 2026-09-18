@@ -95,6 +95,18 @@ bool _isTransientYtDlpError(String output) {
       s.contains('temporary failure in name resolution');
 }
 
+// Specifiek de signatuur van een verouderde extractor, niet elke tijdelijke
+// netwerkfout: 429/connection-reset lossen zich vanzelf op en worden niet
+// geholpen door yt-dlp bij te werken, dus die horen hier niet bij. Bijwerken
+// kost een netwerk-rondtrip en een herstart van de download; dat is het
+// alleen waard als de kans reeel is dat het ook echt helpt.
+bool _looksLikeStaleYtDlp(String output) {
+  final s = output.toLowerCase();
+  return s.contains('http error 403') ||
+      s.contains('requested format is not available') ||
+      s.contains('unable to download video data');
+}
+
 Future<List<String>> _cookiesArgs() async {
   final browser = await Settings.getCookiesBrowser();
   final value = browser.ytDlpValue;
@@ -647,23 +659,60 @@ class YtDlpService {
     );
 
     () async {
+      var updateTried = false;
       try {
-        await _androidChannel.invokeMethod('download', {
-          'url': url,
-          'outputDir': outputDir,
-          'isPlaylist': isPlaylist,
-          'format': format == OutputFormat.mp3 ? 'mp3' : 'mp4',
-          'formatId': formatId,
-        });
-        controller.add(DownloadDoneEvent(success: true));
-      } on PlatformException catch (e) {
-        controller.add(LogEvent('FOUT: ${e.message ?? e.toString()}'));
-        controller.add(
-          DownloadDoneEvent(
-            success: false,
-            error: _shortError(e.message ?? 'Onbekende fout'),
-          ),
-        );
+        while (true) {
+          try {
+            await _androidChannel.invokeMethod('download', {
+              'url': url,
+              'outputDir': outputDir,
+              'isPlaylist': isPlaylist,
+              'format': format == OutputFormat.mp3 ? 'mp3' : 'mp4',
+              'formatId': formatId,
+            });
+            controller.add(DownloadDoneEvent(success: true));
+            return;
+          } on PlatformException catch (e) {
+            final message = e.message ?? e.toString();
+            // Bij een echte 403/verouderde-yt-dlp-fout is de leeftijdscheck
+            // vooraf kennelijk niet toereikend geweest (bv. net over de 30
+            // dagen heen, of yt-dlp's eigen versieschema veranderd). Dit is
+            // het vangnet: eenmalig bijwerken en de download zelf opnieuw
+            // starten, in plaats van de gebruiker met een 403 te laten zitten
+            // terwijl de oplossing gewoon "bijwerken" is.
+            if (!updateTried && _looksLikeStaleYtDlp(message)) {
+              updateTried = true;
+              controller.add(
+                LogEvent('yt-dlp lijkt verouderd, bijwerken en opnieuw...'),
+              );
+              try {
+                final result = await updateAndroidYtDlp();
+                await Settings.setYtDlpUpdateCheck(
+                  DateTime.now().millisecondsSinceEpoch,
+                );
+                if (result.updated) {
+                  controller.add(
+                    LogEvent(
+                      'yt-dlp bijgewerkt naar ${result.version ?? "nieuwste"}, download opnieuw...',
+                    ),
+                  );
+                  continue;
+                }
+              } catch (_) {
+                // Bijwerken zelf mislukt (geen netwerk e.d.): val terug op de
+                // oorspronkelijke fout hieronder i.p.v. een tweede te tonen.
+              }
+            }
+            controller.add(LogEvent('FOUT: $message'));
+            controller.add(
+              DownloadDoneEvent(
+                success: false,
+                error: _shortError(message),
+              ),
+            );
+            return;
+          }
+        }
       } finally {
         await progressSub.cancel();
         await controller.close();

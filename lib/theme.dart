@@ -28,13 +28,51 @@ ThemeData buildAppTheme(Brightness brightness) {
         // — ListTile-subtitels en leading-icons werden daardoor nauwelijks
         // leesbaar in lichte modus.
         onSurfaceVariant: isLight ? Colors.black87 : Colors.white70,
+        // Material 3 tekent dialogen, menu's en sheets op de
+        // surfaceContainer-tinten. Die worden uit de seed afgeleid en gaven
+        // met een zwarte seed een grijsbruine kaart boven een zwarte app.
+        // Alles gelijktrekken met de app-achtergrond; de rand hieronder houdt
+        // de kaart zichtbaar.
+        surfaceDim: bg,
+        surfaceBright: bg,
+        surfaceContainerLowest: bg,
+        surfaceContainerLow: bg,
+        surfaceContainer: bg,
+        surfaceContainerHigh: bg,
+        surfaceContainerHighest: bg,
       );
+
+  final popupBorder = BorderSide(
+    color: isLight ? Colors.black26 : Colors.white24,
+  );
 
   return ThemeData(
     useMaterial3: true,
     brightness: brightness,
     colorScheme: scheme,
     scaffoldBackgroundColor: bg,
+    // Dropdown-menu's vallen terug op canvasColor i.p.v. de ColorScheme.
+    canvasColor: bg,
+    dialogTheme: DialogThemeData(
+      backgroundColor: bg,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: popupBorder,
+      ),
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: bg,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: popupBorder,
+      ),
+    ),
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: bg,
+      surfaceTintColor: Colors.transparent,
+    ),
     appBarTheme: AppBarTheme(
       backgroundColor: bg,
       foregroundColor: fg,

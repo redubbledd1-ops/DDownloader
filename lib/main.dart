@@ -1298,15 +1298,11 @@ class _HomePageState extends State<HomePage> {
                     label: Text(t.downloadButton),
                   ),
                   if (_busy) ...[
-                    const SizedBox(width: 8),
-                    IconButton.filled(
+                    const SizedBox(width: 4),
+                    IconButton(
                       onPressed: _cancelling ? null : _stopDownload,
                       icon: const Icon(Icons.stop),
                       tooltip: t.stopButton,
-                      style: IconButton.styleFrom(
-                        backgroundColor: Colors.red.shade700,
-                        foregroundColor: Colors.white,
-                      ),
                     ),
                   ],
                 ],

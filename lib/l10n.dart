@@ -928,28 +928,46 @@ class L10n {
     AppLanguage.pt => 'Download parado, arquivo incompleto excluído',
   };
 
-  String get splitFormatDirsTitle => switch (language) {
-    AppLanguage.nl => 'Aparte mappen voor MP3 en MP4',
-    AppLanguage.en => 'Separate folders for MP3 and MP4',
-    AppLanguage.de => 'Getrennte Ordner für MP3 und MP4',
-    AppLanguage.fr => 'Dossiers séparés pour MP3 et MP4',
-    AppLanguage.es => 'Carpetas separadas para MP3 y MP4',
-    AppLanguage.pt => 'Pastas separadas para MP3 e MP4',
+  String get sameFolderBothFormatsTitle => switch (language) {
+    AppLanguage.nl => 'MP4 & MP3 naar dezelfde map',
+    AppLanguage.en => 'MP4 & MP3 to the same folder',
+    AppLanguage.de => 'MP4 & MP3 in denselben Ordner',
+    AppLanguage.fr => 'MP4 et MP3 dans le même dossier',
+    AppLanguage.es => 'MP4 y MP3 a la misma carpeta',
+    AppLanguage.pt => 'MP4 e MP3 na mesma pasta',
   };
 
-  String get splitFormatDirsSubtitle => switch (language) {
+  String get sameFolderBothFormatsSubtitle => switch (language) {
     AppLanguage.nl =>
-      'Uit: alles gaat naar de map hierboven. Aan: audio en video krijgen elk hun eigen map.',
+      'Aan: alles in één downloadmap. Uit: video en audio krijgen elk hun eigen map.',
     AppLanguage.en =>
-      'Off: everything goes to the folder above. On: audio and video each get their own folder.',
+      'On: everything in one download folder. Off: video and audio each get their own folder.',
     AppLanguage.de =>
-      'Aus: alles landet im Ordner oben. An: Audio und Video bekommen je einen eigenen Ordner.',
+      'An: alles in einem Downloadordner. Aus: Video und Audio bekommen je einen eigenen Ordner.',
     AppLanguage.fr =>
-      'Désactivé : tout va dans le dossier ci-dessus. Activé : l’audio et la vidéo ont chacun leur dossier.',
+      'Activé : tout dans un seul dossier. Désactivé : la vidéo et l’audio ont chacun leur dossier.',
     AppLanguage.es =>
-      'Desactivado: todo va a la carpeta de arriba. Activado: el audio y el vídeo tienen su propia carpeta.',
+      'Activado: todo en una carpeta. Desactivado: el vídeo y el audio tienen su propia carpeta.',
     AppLanguage.pt =>
-      'Desligado: tudo vai para a pasta acima. Ligado: áudio e vídeo ganham cada um a sua pasta.',
+      'Ligado: tudo numa pasta. Desligado: vídeo e áudio ganham cada um a sua pasta.',
+  };
+
+  String get changeMp4FolderButton => switch (language) {
+    AppLanguage.nl => 'MP4-map wijzigen',
+    AppLanguage.en => 'Change MP4 folder',
+    AppLanguage.de => 'MP4-Ordner ändern',
+    AppLanguage.fr => 'Changer le dossier MP4',
+    AppLanguage.es => 'Cambiar carpeta MP4',
+    AppLanguage.pt => 'Alterar pasta MP4',
+  };
+
+  String get changeMp3FolderButton => switch (language) {
+    AppLanguage.nl => 'MP3-map wijzigen',
+    AppLanguage.en => 'Change MP3 folder',
+    AppLanguage.de => 'MP3-Ordner ändern',
+    AppLanguage.fr => 'Changer le dossier MP3',
+    AppLanguage.es => 'Cambiar carpeta MP3',
+    AppLanguage.pt => 'Alterar pasta MP3',
   };
 
   String get mp4FolderLabel => switch (language) {

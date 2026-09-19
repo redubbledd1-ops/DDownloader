@@ -102,10 +102,94 @@ class _SettingsPageState extends State<SettingsPage> {
       initialDirectory: _downloadDir.isEmpty ? null : _downloadDir,
     );
     if (selected == null) return;
-    await Settings.setDownloadDir(selected);
-    await Settings.addFolderHistory(selected);
-    setState(() => _downloadDir = selected);
-    widget.onChangeDownloadDir(selected);
+    await _applyMainDir(selected);
+  }
+
+  Future<void> _applyMainDir(String dir) async {
+    await Settings.setDownloadDir(dir);
+    await Settings.addFolderHistory(dir);
+    if (!mounted) return;
+    setState(() => _downloadDir = dir);
+    widget.onChangeDownloadDir(dir);
+  }
+
+  Future<void> _applyFormatDir(OutputFormat format, String dir) async {
+    await Settings.setFormatDir(format, dir);
+    await Settings.addFolderHistory(dir);
+    if (!mounted) return;
+    setState(() {
+      if (format == OutputFormat.mp3) {
+        _mp3Dir = dir;
+      } else {
+        _mp4Dir = dir;
+      }
+    });
+  }
+
+  Widget _folderTile(
+    IconData icon,
+    String title,
+    String path,
+    VoidCallback onTap,
+  ) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(title),
+      subtitle: Text(path.isEmpty ? t.loadingDownloadDir : path),
+      onTap: onTap,
+    );
+  }
+
+  Widget _changeFolderButton(String label, VoidCallback onPressed) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          onPressed: onPressed,
+          icon: const Icon(Icons.drive_file_move_outline),
+          label: Text(label),
+        ),
+      ),
+    );
+  }
+
+  /// De mappen-geschiedenis is gedeeld; alleen het doel verschilt, zodat een
+  /// keuze bij (MP3) ook echt de MP3-map zet en niet de hoofdmap.
+  Widget _historyTile(
+    String title,
+    String currentDir,
+    Future<void> Function(String) onSelect,
+  ) {
+    return ListTile(
+      leading: const Icon(Icons.history),
+      title: Text(title),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => FolderHistoryPage(
+              language: widget.language,
+              currentDir: currentDir,
+              onSelectFolder: onSelect,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _openFolderTile(String title, String dir) {
+    return ListTile(
+      leading: const Icon(Icons.folder_open),
+      title: Text(title),
+      onTap: dir.isEmpty
+          ? null
+          : () => Process.start('explorer.exe', [
+              dir,
+            ], mode: ProcessStartMode.detached),
+    );
   }
 
   Future<void> _loadFormatDirs() async {
@@ -128,16 +212,7 @@ class _SettingsPageState extends State<SettingsPage> {
       initialDirectory: initial.isEmpty ? null : initial,
     );
     if (selected == null) return;
-    await Settings.setFormatDir(format, selected);
-    await Settings.addFolderHistory(selected);
-    if (!mounted) return;
-    setState(() {
-      if (format == OutputFormat.mp3) {
-        _mp3Dir = selected;
-      } else {
-        _mp4Dir = selected;
-      }
-    });
+    await _applyFormatDir(format, selected);
   }
 
   Future<void> _pickLanguage() async {
@@ -214,6 +289,10 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Zonder eigen keuze valt een formaat terug op de hoofdmap; dat tonen we
+    // ook zo, i.p.v. een leeg pad.
+    final mp4Dir = _mp4Dir.isEmpty ? _downloadDir : _mp4Dir;
+    final mp3Dir = _mp3Dir.isEmpty ? _downloadDir : _mp3Dir;
     return Scaffold(
       appBar: AppBar(title: Text(t.settingsTitle)),
       body: SafeArea(
@@ -239,88 +318,64 @@ class _SettingsPageState extends State<SettingsPage> {
               onTap: _pickLanguage,
             ),
             _SectionHeader(title: t.folderSection),
-            ListTile(
-              leading: const Icon(Icons.folder_outlined),
-              title: Text(t.currentFolderLabel),
-              subtitle: Text(
-                _downloadDir.isEmpty ? t.loadingDownloadDir : _downloadDir,
-              ),
-              onTap: _pickDir,
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: _pickDir,
-                      icon: const Icon(Icons.drive_file_move_outline),
-                      label: Text(t.changeFolderButton),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            ListTile(
-              leading: const Icon(Icons.history),
-              title: Text(t.folderHistoryButton),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => FolderHistoryPage(
-                      language: widget.language,
-                      currentDir: _downloadDir,
-                      onSelectFolder: (dir) async {
-                        await Settings.setDownloadDir(dir);
-                        await Settings.addFolderHistory(dir);
-                        setState(() => _downloadDir = dir);
-                        widget.onChangeDownloadDir(dir);
-                      },
-                    ),
-                  ),
-                );
-              },
-            ),
-            if (!Platform.isAndroid)
-              ListTile(
-                leading: const Icon(Icons.folder_open),
-                title: Text(t.openDownloadFolderTooltip),
-                onTap: _downloadDir.isEmpty
-                    ? null
-                    : () => Process.start('explorer.exe', [
-                        _downloadDir,
-                      ], mode: ProcessStartMode.detached),
-              ),
+            // Keuze bovenaan, want die bepaalt wat er hieronder staat: een
+            // map met een knop, of twee mappen met twee knoppen.
             SwitchListTile(
               secondary: const Icon(Icons.folder_copy_outlined),
-              title: Text(t.splitFormatDirsTitle),
-              subtitle: Text(t.splitFormatDirsSubtitle),
-              value: _splitFormatDirs,
+              title: Text(t.sameFolderBothFormatsTitle),
+              subtitle: Text(t.sameFolderBothFormatsSubtitle),
+              value: !_splitFormatDirs,
               onChanged: (value) async {
-                setState(() => _splitFormatDirs = value);
-                await Settings.setSplitFormatDirs(value);
+                setState(() => _splitFormatDirs = !value);
+                await Settings.setSplitFormatDirs(!value);
               },
             ),
-            // Zonder eigen keuze vallen beide formaten terug op de map
-            // hierboven; dat tonen we ook zo, i.p.v. een leeg pad.
-            if (_splitFormatDirs) ...[
-              ListTile(
-                leading: const Icon(Icons.movie_outlined),
-                title: Text(t.mp4FolderLabel),
-                subtitle: Text(_mp4Dir.isEmpty ? _downloadDir : _mp4Dir),
-                trailing: const Icon(Icons.drive_file_move_outline),
-                onTap: () => _pickFormatDir(OutputFormat.mp4),
+            if (!_splitFormatDirs) ...[
+              _folderTile(
+                Icons.folder_outlined,
+                t.currentFolderLabel,
+                _downloadDir,
+                _pickDir,
               ),
-              ListTile(
-                leading: const Icon(Icons.audiotrack),
-                title: Text(t.mp3FolderLabel),
-                subtitle: Text(_mp3Dir.isEmpty ? _downloadDir : _mp3Dir),
-                trailing: const Icon(Icons.drive_file_move_outline),
-                onTap: () => _pickFormatDir(OutputFormat.mp3),
+              _changeFolderButton(t.changeFolderButton, _pickDir),
+              _historyTile(t.folderHistoryButton, _downloadDir, _applyMainDir),
+              if (!Platform.isAndroid)
+                _openFolderTile(t.openDownloadFolderTooltip, _downloadDir),
+            ] else ...[
+              _folderTile(
+                Icons.movie_outlined,
+                t.mp4FolderLabel,
+                mp4Dir,
+                () => _pickFormatDir(OutputFormat.mp4),
               ),
+              _folderTile(
+                Icons.audiotrack,
+                t.mp3FolderLabel,
+                mp3Dir,
+                () => _pickFormatDir(OutputFormat.mp3),
+              ),
+              _changeFolderButton(
+                t.changeMp4FolderButton,
+                () => _pickFormatDir(OutputFormat.mp4),
+              ),
+              _changeFolderButton(
+                t.changeMp3FolderButton,
+                () => _pickFormatDir(OutputFormat.mp3),
+              ),
+              _historyTile(
+                '${t.folderHistoryButton} (MP4)',
+                mp4Dir,
+                (dir) => _applyFormatDir(OutputFormat.mp4, dir),
+              ),
+              _historyTile(
+                '${t.folderHistoryButton} (MP3)',
+                mp3Dir,
+                (dir) => _applyFormatDir(OutputFormat.mp3, dir),
+              ),
+              if (!Platform.isAndroid) ...[
+                _openFolderTile('${t.openDownloadFolderTooltip} (MP4)', mp4Dir),
+                _openFolderTile('${t.openDownloadFolderTooltip} (MP3)', mp3Dir),
+              ],
             ],
             if (!Platform.isAndroid) ...[
               _SectionHeader(title: t.cookiesSection),

@@ -91,6 +91,9 @@ const String prefsKeyAppExe = 'flutter.app_exe';
 const String prefsKeyAutoDownload = 'flutter.auto_download_on_click';
 const String prefsKeyPreferredVideoQuality = 'flutter.preferred_video_quality';
 const String prefsKeyCookiesBrowser = 'flutter.cookies_browser';
+const String prefsKeySplitFormatDirs = 'flutter.split_format_dirs';
+const String prefsKeyDownloadDirMp3 = 'flutter.download_dir_mp3';
+const String prefsKeyDownloadDirMp4 = 'flutter.download_dir_mp4';
 
 const List<String> cookiesBrowserValues = [
   'none',
@@ -118,6 +121,20 @@ const Map<String, int> qualityMaxHeight = {
   'p240': 240,
   'p144': 144,
 };
+
+/// Zelfde keuze als Settings.getEffectiveDownloadDir in de app: met de
+/// splitsing aan gaat mp3 naar zijn eigen map en mp4 naar de zijne.
+String downloadDirFor(Map<String, dynamic> settings, String format) {
+  final base = settings['downloadDir'] as String;
+  if (settings['splitFormatDirs'] != true) return base;
+  final dir =
+      (format == 'mp3'
+              ? settings['downloadDirMp3']
+              : settings['downloadDirMp4'])
+          ?.toString() ??
+      '';
+  return dir.isEmpty ? base : dir;
+}
 
 String? formatSelectorFor(String? quality) {
   if (quality == null) return null;
@@ -242,6 +259,17 @@ Future<void> handleMessage(Map<String, dynamic> msg) async {
           settings['preferredVideoQuality'] as String?,
         );
       }
+      // De extentie stuurt altijd zijn eigen "Downloadmap"-veld mee, en dat
+      // spiegelt de hoofd-downloadmap. Is dat precies die map, dan telt het
+      // niet als bewuste afwijking en mag de formaat-splitsing er overheen.
+      final requestedDir = msg['outputDir']?.toString();
+      final baseDir = settings['downloadDir'] as String;
+      final outputDir =
+          (requestedDir == null ||
+              requestedDir.isEmpty ||
+              requestedDir == baseDir)
+          ? downloadDirFor(settings, downloadFormat)
+          : requestedDir;
       await runDownload(
         url: url,
         format: downloadFormat,
@@ -249,8 +277,7 @@ Future<void> handleMessage(Map<String, dynamic> msg) async {
         isPlaylist: msg['isPlaylist'] == true
             ? true
             : settings['playlistMode'] == 'playlist',
-        outputDir:
-            msg['outputDir']?.toString() ?? settings['downloadDir'] as String,
+        outputDir: outputDir,
       );
     case 'sendToApp':
       final url = msg['url']?.toString() ?? '';
@@ -519,6 +546,9 @@ Future<Map<String, dynamic>> readSettings() async {
     'preferredVideoQuality':
         raw[prefsKeyPreferredVideoQuality]?.toString() ?? 'p1080',
     'cookiesBrowser': raw[prefsKeyCookiesBrowser]?.toString() ?? 'none',
+    'splitFormatDirs': raw[prefsKeySplitFormatDirs] == true,
+    'downloadDirMp3': raw[prefsKeyDownloadDirMp3]?.toString() ?? '',
+    'downloadDirMp4': raw[prefsKeyDownloadDirMp4]?.toString() ?? '',
   };
 }
 

@@ -208,13 +208,100 @@ class YtDlpService {
     await _androidChannel.invokeMethod('shareFile', {'path': path});
   }
 
-  /// Schiet een lopend yt-dlp-kindproces af. Zonder dit blijft python draaien
-  /// nadat de UI weg is.
+  Process? _activeProcess;
+  Directory? _activeTempDir;
+  String? _activeOutputDir;
+  bool _cancelRequested = false;
+
+  /// Of de lopende download met de stopknop is afgebroken. De aanroeper leest
+  /// dit tussen de losse yt-dlp-stappen door (playlist-probe, kwaliteiten
+  /// ophalen), want die draaien met Process.run en zijn niet te onderbreken.
+  bool get isCancelled => _cancelRequested;
+
+  /// Aan het begin van elke nieuwe download aanroepen.
+  void resetCancel() {
+    _cancelRequested = false;
+  }
+
+  /// Schiet een lopend yt-dlp-kindproces af en gooit het half gedownloade
+  /// bestand weg. Zonder de kill blijft python draaien nadat de UI weg is;
+  /// zonder het opruimen blijft er een onbruikbaar .part-bestand staan.
   Future<void> cancelDownload() async {
-    if (!Platform.isAndroid) return;
+    _cancelRequested = true;
+    if (Platform.isAndroid) {
+      try {
+        await _androidChannel.invokeMethod('cancel');
+      } catch (_) {}
+    } else {
+      final process = _activeProcess;
+      _activeProcess = null;
+      if (process != null) await _killProcessTree(process);
+    }
+    await _cleanupPartials();
+  }
+
+  Future<void> _killProcessTree(Process process) async {
+    if (Platform.isWindows) {
+      try {
+        // yt-dlp.exe start zelf nog een python-kindproces (en ffmpeg bij het
+        // samenvoegen). process.kill() laat die draaien, waardoor het
+        // .part-bestand open blijft en het opruimen hieronder faalt.
+        await Process.run('taskkill', ['/PID', '${process.pid}', '/T', '/F']);
+      } catch (_) {}
+    }
     try {
-      await _androidChannel.invokeMethod('cancel');
+      process.kill(ProcessSignal.sigkill);
     } catch (_) {}
+    try {
+      await process.exitCode.timeout(const Duration(seconds: 5));
+    } catch (_) {}
+  }
+
+  Future<void> _cleanupPartials() async {
+    final temp = _activeTempDir;
+    if (temp != null) {
+      // Alles in de temp-map is per definitie halfaf: yt-dlp verplaatst een
+      // voltooide download meteen naar de downloadmap (-P home/temp).
+      try {
+        await for (final entity in temp.list()) {
+          await _deleteWithRetry(entity);
+        }
+      } catch (_) {}
+    }
+    final outputDir = _activeOutputDir;
+    if (outputDir != null) await deletePartialsIn(outputDir);
+  }
+
+  /// .part/.ytdl-restanten in de downloadmap zelf. Android schrijft daar
+  /// rechtstreeks, zonder aparte temp-map.
+  static Future<void> deletePartialsIn(String dir) async {
+    if (dir.isEmpty) return;
+    try {
+      final directory = Directory(dir);
+      if (!await directory.exists()) return;
+      await for (final entity in directory.list()) {
+        if (entity is! File) continue;
+        final name = p.basename(entity.path).toLowerCase();
+        if (name.endsWith('.part') ||
+            name.endsWith('.ytdl') ||
+            name.contains('.part-frag')) {
+          await _deleteWithRetry(entity);
+        }
+      }
+    } catch (_) {}
+  }
+
+  /// Windows geeft het bestands-handle niet altijd meteen vrij na de kill;
+  /// een directe delete gooit dan WinError 32. Kort opnieuw proberen.
+  static Future<void> _deleteWithRetry(FileSystemEntity entity) async {
+    for (var attempt = 0; attempt < 5; attempt++) {
+      try {
+        await entity.delete(recursive: true);
+        return;
+      } catch (_) {
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
+    }
   }
 
   String? _resolvedYtDlpPath;
@@ -628,6 +715,10 @@ class YtDlpService {
     String? formatId,
   }) {
     final controller = StreamController<DownloadEvent>();
+    // Android schrijft rechtstreeks in de downloadmap; daar staan dus ook de
+    // .part-restanten die de stopknop moet opruimen.
+    _activeTempDir = null;
+    _activeOutputDir = outputDir;
     var lastProgress = -1.0;
     final progressSub = _androidProgressChannel.receiveBroadcastStream().listen(
       (event) {
@@ -670,10 +761,25 @@ class YtDlpService {
               'format': format == OutputFormat.mp3 ? 'mp3' : 'mp4',
               'formatId': formatId,
             });
-            controller.add(DownloadDoneEvent(success: true));
+            if (_cancelRequested) {
+              // Kill kwam binnen terwijl execute() net normaal afrondde.
+              await _cleanupPartials();
+              controller.add(
+                DownloadDoneEvent(success: false, cancelled: true),
+              );
+            } else {
+              controller.add(DownloadDoneEvent(success: true));
+            }
             return;
           } on PlatformException catch (e) {
             final message = e.message ?? e.toString();
+            if (_cancelRequested) {
+              await _cleanupPartials();
+              controller.add(
+                DownloadDoneEvent(success: false, cancelled: true),
+              );
+              return;
+            }
             // Bij een echte 403/verouderde-yt-dlp-fout is de leeftijdscheck
             // vooraf kennelijk niet toereikend geweest (bv. net over de 30
             // dagen heen, of yt-dlp's eigen versieschema veranderd). Dit is
@@ -739,6 +845,8 @@ class YtDlpService {
       p.join((await getTemporaryDirectory()).path, 'ytdlp-temp'),
     );
     await tempRoot.create(recursive: true);
+    _activeTempDir = tempRoot;
+    _activeOutputDir = outputDir;
     final args = <String>[
       url,
       '-P',
@@ -789,11 +897,26 @@ class YtDlpService {
     // gedownload (geen --download-archive), maar dat is dezelfde
     // "altijd opnieuw beginnen"-aanpak als --no-continue hierboven.
     for (var attempt = 0; ; attempt++) {
+      if (_cancelRequested) {
+        await _cleanupPartials();
+        yield DownloadDoneEvent(success: false, cancelled: true);
+        return;
+      }
       final process = await Process.start(
         ytDlp,
         args,
         environment: _ytDlpEnvironment,
       );
+      _activeProcess = process;
+      // De stopknop kan net tussen de check hierboven en Process.start door
+      // zijn ingedrukt; dan staat er nu alsnog een proces te draaien.
+      if (_cancelRequested) {
+        _activeProcess = null;
+        await _killProcessTree(process);
+        await _cleanupPartials();
+        yield DownloadDoneEvent(success: false, cancelled: true);
+        return;
+      }
 
       final stdoutLines = process.stdout
           .transform(lenientUtf8)
@@ -826,6 +949,15 @@ class YtDlpService {
 
       final exitCode = await process.exitCode;
       await stderrSub.cancel();
+      _activeProcess = null;
+
+      if (_cancelRequested) {
+        // Niet opnieuw proberen en geen foutmelding: de niet-nul exitcode is
+        // hier gewoon het gevolg van onze eigen kill.
+        await _cleanupPartials();
+        yield DownloadDoneEvent(success: false, cancelled: true);
+        return;
+      }
 
       if (exitCode == 0) {
         yield DownloadDoneEvent(success: true);

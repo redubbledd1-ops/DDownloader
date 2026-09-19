@@ -218,7 +218,16 @@ class StatusEvent extends DownloadEvent {
 class DownloadDoneEvent extends DownloadEvent {
   final bool success;
   final String? error;
-  DownloadDoneEvent({required this.success, this.error});
+
+  /// Afgebroken met de stopknop: geen foutmelding tonen, en het half
+  /// gedownloade bestand is al opgeruimd.
+  final bool cancelled;
+
+  DownloadDoneEvent({
+    required this.success,
+    this.error,
+    this.cancelled = false,
+  });
 }
 
 class LogEvent extends DownloadEvent {

@@ -21,7 +21,7 @@ class SettingsPage extends StatefulWidget {
   final ValueChanged<bool> onChangeAutoDownloadOnClick;
   final CookiesBrowser cookiesBrowser;
   final ValueChanged<CookiesBrowser> onChangeCookiesBrowser;
-  final bool showLogs;
+  final ValueNotifier<bool> showLogs;
   final ValueChanged<bool> onToggleShowLogs;
   final VoidCallback onSaveLogs;
   final VoidCallback onShareLogs;
@@ -58,10 +58,9 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   late String _downloadDir = widget.downloadDir;
-  // Eigen kopie: de schakelaar zat eerder direct aan widget.showLogs vast, maar
-  // deze pagina is een gepushte route. Een setState in HomePage rebuildt die
-  // niet, dus je moest terug en opnieuw openen voordat het logpaneel verscheen.
-  late bool _showLogs = widget.showLogs;
+  bool _splitFormatDirs = false;
+  String _mp4Dir = '';
+  String _mp3Dir = '';
   String? _ytDlpVersion;
   bool _updatingYtDlp = false;
   final _logScrollController = ScrollController();
@@ -73,6 +72,7 @@ class _SettingsPageState extends State<SettingsPage> {
     Settings.appDataDir().then((dir) {
       if (mounted) setState(() => _dataDir = dir.path);
     });
+    _loadFormatDirs();
     if (Platform.isAndroid) {
       widget.ytDlpVersion().then((v) {
         if (mounted) setState(() => _ytDlpVersion = v);
@@ -106,6 +106,38 @@ class _SettingsPageState extends State<SettingsPage> {
     await Settings.addFolderHistory(selected);
     setState(() => _downloadDir = selected);
     widget.onChangeDownloadDir(selected);
+  }
+
+  Future<void> _loadFormatDirs() async {
+    final split = await Settings.getSplitFormatDirs();
+    final mp4 = await Settings.getFormatDir(OutputFormat.mp4);
+    final mp3 = await Settings.getFormatDir(OutputFormat.mp3);
+    if (!mounted) return;
+    setState(() {
+      _splitFormatDirs = split;
+      _mp4Dir = mp4 ?? '';
+      _mp3Dir = mp3 ?? '';
+    });
+  }
+
+  Future<void> _pickFormatDir(OutputFormat format) async {
+    final current = format == OutputFormat.mp3 ? _mp3Dir : _mp4Dir;
+    final initial = current.isNotEmpty ? current : _downloadDir;
+    final selected = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: t.changeFolderButton,
+      initialDirectory: initial.isEmpty ? null : initial,
+    );
+    if (selected == null) return;
+    await Settings.setFormatDir(format, selected);
+    await Settings.addFolderHistory(selected);
+    if (!mounted) return;
+    setState(() {
+      if (format == OutputFormat.mp3) {
+        _mp3Dir = selected;
+      } else {
+        _mp4Dir = selected;
+      }
+    });
   }
 
   Future<void> _pickLanguage() async {
@@ -262,6 +294,34 @@ class _SettingsPageState extends State<SettingsPage> {
                         _downloadDir,
                       ], mode: ProcessStartMode.detached),
               ),
+            SwitchListTile(
+              secondary: const Icon(Icons.folder_copy_outlined),
+              title: Text(t.splitFormatDirsTitle),
+              subtitle: Text(t.splitFormatDirsSubtitle),
+              value: _splitFormatDirs,
+              onChanged: (value) async {
+                setState(() => _splitFormatDirs = value);
+                await Settings.setSplitFormatDirs(value);
+              },
+            ),
+            // Zonder eigen keuze vallen beide formaten terug op de map
+            // hierboven; dat tonen we ook zo, i.p.v. een leeg pad.
+            if (_splitFormatDirs) ...[
+              ListTile(
+                leading: const Icon(Icons.movie_outlined),
+                title: Text(t.mp4FolderLabel),
+                subtitle: Text(_mp4Dir.isEmpty ? _downloadDir : _mp4Dir),
+                trailing: const Icon(Icons.drive_file_move_outline),
+                onTap: () => _pickFormatDir(OutputFormat.mp4),
+              ),
+              ListTile(
+                leading: const Icon(Icons.audiotrack),
+                title: Text(t.mp3FolderLabel),
+                subtitle: Text(_mp3Dir.isEmpty ? _downloadDir : _mp3Dir),
+                trailing: const Icon(Icons.drive_file_move_outline),
+                onTap: () => _pickFormatDir(OutputFormat.mp3),
+              ),
+            ],
             if (!Platform.isAndroid) ...[
               _SectionHeader(title: t.cookiesSection),
               ListTile(
@@ -313,97 +373,105 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ],
             _SectionHeader(title: t.logsTooltip),
-            SwitchListTile(
-              title: Text(t.showLogsLabel),
-              subtitle: Text(t.showLogsSubtitle),
-              value: _showLogs,
-              onChanged: (value) {
-                setState(() => _showLogs = value);
-                widget.onToggleShowLogs(value);
-              },
-            ),
-            if (_showLogs) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton.icon(
-                      icon: const Icon(Icons.copy_all, size: 18),
-                      label: Text(t.copyLogsTooltip),
-                      onPressed: widget.logs.isEmpty ? null : _copyLogs,
-                    ),
-                    const SizedBox(width: 8),
-                    TextButton.icon(
-                      icon: const Icon(Icons.share, size: 18),
-                      label: Text(t.shareLogsTooltip),
-                      onPressed: widget.logs.isEmpty ? null : widget.onShareLogs,
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: ListenableBuilder(
-                  listenable: widget.logsTick,
-                  builder: (context, _) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (_logScrollController.hasClients) {
-                        _logScrollController.jumpTo(
-                          _logScrollController.position.maxScrollExtent,
-                        );
-                      }
-                    });
-                    return Container(
-                      height: 220,
-                      decoration: BoxDecoration(
-                        color: Colors.black,
-                        borderRadius: BorderRadius.circular(8),
+            // Schakelaar en paneel lezen allebei rechtstreeks uit de notifier
+            // van HomePage. Een eigen kopie hier liep uit de pas zodra deze
+            // route of HomePage opnieuw werd opgebouwd.
+            ValueListenableBuilder<bool>(
+              valueListenable: widget.showLogs,
+              builder: (context, showLogs, _) => Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SwitchListTile(
+                    title: Text(t.showLogsLabel),
+                    subtitle: Text(t.showLogsSubtitle),
+                    value: showLogs,
+                    onChanged: widget.onToggleShowLogs,
+                  ),
+                  if (showLogs) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton.icon(
+                            icon: const Icon(Icons.copy_all, size: 18),
+                            label: Text(t.copyLogsTooltip),
+                            onPressed: widget.logs.isEmpty ? null : _copyLogs,
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton.icon(
+                            icon: const Icon(Icons.share, size: 18),
+                            label: Text(t.shareLogsTooltip),
+                            onPressed: widget.logs.isEmpty
+                                ? null
+                                : widget.onShareLogs,
+                          ),
+                        ],
                       ),
-                      padding: const EdgeInsets.all(8),
-                      child: widget.logs.isEmpty
-                          ? Center(
-                              child: Text(
-                                t.noLogsYet,
-                                style: const TextStyle(color: Colors.grey),
-                              ),
-                            )
-                          // SelectionArea maakt de regels met de vinger
-                          // selecteerbaar; los daarvan blijft de Kopieer-knop
-                          // hierboven de snelste weg naar het hele log.
-                          : SelectionArea(
-                              child: Scrollbar(
-                                controller: _logScrollController,
-                                child: ListView.builder(
-                                  controller: _logScrollController,
-                                  itemCount: widget.logs.length,
-                                  itemBuilder: (_, i) => Text(
-                                    widget.logs[i],
-                                    style: const TextStyle(
-                                      color: Colors.greenAccent,
-                                      fontFamily: 'monospace',
-                                      fontSize: 11,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: ListenableBuilder(
+                        listenable: widget.logsTick,
+                        builder: (context, _) {
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (_logScrollController.hasClients) {
+                              _logScrollController.jumpTo(
+                                _logScrollController.position.maxScrollExtent,
+                              );
+                            }
+                          });
+                          return Container(
+                            height: 220,
+                            decoration: BoxDecoration(
+                              color: Colors.black,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            padding: const EdgeInsets.all(8),
+                            child: widget.logs.isEmpty
+                                ? Center(
+                                    child: Text(
+                                      t.noLogsYet,
+                                      style: const TextStyle(
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                  )
+                                // SelectionArea maakt de regels met de vinger
+                                // selecteerbaar; los daarvan blijft de
+                                // Kopieer-knop hierboven de snelste weg naar
+                                // het hele log.
+                                : SelectionArea(
+                                    child: Scrollbar(
+                                      controller: _logScrollController,
+                                      child: ListView.builder(
+                                        controller: _logScrollController,
+                                        itemCount: widget.logs.length,
+                                        itemBuilder: (_, i) => Text(
+                                          widget.logs[i],
+                                          style: const TextStyle(
+                                            color: Colors.greenAccent,
+                                            fontFamily: 'monospace',
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ),
-                            ),
-                    );
-                  },
-                ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ],
               ),
-            ],
+            ),
             ListTile(
               leading: const Icon(Icons.download_for_offline_outlined),
               title: Text(t.saveLogsTooltip),
               onTap: widget.onSaveLogs,
             ),
             _SectionHeader(title: t.aboutSection),
-            ListTile(
-              leading: const Icon(Icons.info_outline),
-              title: Text(t.appVersionLabel),
-              subtitle: const Text(kAppVersion),
-            ),
             if (_dataDir.isNotEmpty)
               ListTile(
                 leading: const Icon(Icons.folder_shared_outlined),
@@ -415,6 +483,11 @@ class _SettingsPageState extends State<SettingsPage> {
                       ], mode: ProcessStartMode.detached)
                     : null,
               ),
+            ListTile(
+              leading: const Icon(Icons.info_outline),
+              title: Text(t.appVersionLabel),
+              subtitle: const Text(kAppVersion),
+            ),
           ],
         ),
       ),

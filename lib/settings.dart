@@ -22,6 +22,10 @@ class Settings {
   static const _keyLanguage = 'app_language';
   static const _keyFolderHistory = 'folder_history';
   static const _keyDownloadHistory = 'download_history_all';
+  static const _keySplitFormatDirs = 'split_format_dirs';
+  static const _keyDownloadDirMp3 = 'download_dir_mp3';
+  static const _keyDownloadDirMp4 = 'download_dir_mp4';
+  static const _keyShowLogs = 'show_logs';
 
   /// Zelfde map als shared_preferences op Windows: Roaming\com.example\Downloader
   static Future<Directory> appDataDir() async {
@@ -166,6 +170,57 @@ class Settings {
   static Future<void> setDownloadDir(String dir) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyDownloadDir, dir);
+  }
+
+  /// Aparte downloadmappen per formaat. Staat standaard uit: dan gaat alles
+  /// naar de ene map uit [getDownloadDir], precies zoals daarvoor.
+  static Future<bool> getSplitFormatDirs() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_keySplitFormatDirs) ?? false;
+  }
+
+  static Future<void> setSplitFormatDirs(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keySplitFormatDirs, value);
+  }
+
+  static String _formatDirKey(OutputFormat format) =>
+      format == OutputFormat.mp3 ? _keyDownloadDirMp3 : _keyDownloadDirMp4;
+
+  /// De ingestelde map voor dit formaat, of null als er (nog) geen gekozen is.
+  static Future<String?> getFormatDir(OutputFormat format) async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_formatDirKey(format));
+    if (saved == null || saved.isEmpty) return null;
+    return saved;
+  }
+
+  static Future<void> setFormatDir(OutputFormat format, String dir) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_formatDirKey(format), dir);
+  }
+
+  /// Map waar een download van dit formaat daadwerkelijk terechtkomt: de
+  /// formaat-map als de splitsing aan staat en er een map gekozen is, anders
+  /// de gewone downloadmap.
+  static Future<String> getEffectiveDownloadDir(OutputFormat format) async {
+    final base = await getDownloadDir();
+    if (!await getSplitFormatDirs()) return base;
+    final dir = await getFormatDir(format);
+    return (dir == null || dir.isEmpty) ? base : dir;
+  }
+
+  /// Logpaneel in de instellingen open/dicht. Bewust opgeslagen: zonder dit
+  /// stond de schakelaar na een herstart (of een herladen activity op
+  /// Android) weer op een andere stand dan het paneel eronder.
+  static Future<bool> getShowLogs() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_keyShowLogs) ?? false;
+  }
+
+  static Future<void> setShowLogs(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyShowLogs, value);
   }
 
   static Future<bool> getDarkMode() async {

@@ -146,6 +146,7 @@ class _HomePageState extends State<HomePage> {
   CookiesBrowser _cookiesBrowser = CookiesBrowser.none;
   String _downloadDir = '';
   bool _busy = false;
+  bool _cancelling = false;
   double _progress = 0;
   String _status = '';
   final List<DownloadedItem> _downloaded = [];
@@ -160,7 +161,11 @@ class _HomePageState extends State<HomePage> {
   // Logpaneel leeft nu in Settings (aparte route); een simpele teller-
   // notifier laat dat scherm herbouwen zonder de hele HomePage te raken.
   final ValueNotifier<int> _logsTick = ValueNotifier(0);
-  bool _showLogs = false;
+  // Een bron van waarheid voor de logs-schakelaar: de instellingenpagina is
+  // een gepushte route, dus een eigen kopie daar en een kopie hier liepen uit
+  // elkaar zodra een van de twee opnieuw opgebouwd werd.
+  final ValueNotifier<bool> _showLogs = ValueNotifier(false);
+  bool _showLogsTouched = false;
   Timer? _inboxTimer;
   Timer? _completedTimer;
   StreamSubscription<FileSystemEvent>? _completedWatch;
@@ -349,6 +354,7 @@ class _HomePageState extends State<HomePage> {
     _urlController.dispose();
     _searchController.dispose();
     _logsTick.dispose();
+    _showLogs.dispose();
     super.dispose();
   }
 
@@ -361,6 +367,7 @@ class _HomePageState extends State<HomePage> {
       _loadVideoQuality(),
       _loadAutoDownloadOnClick(),
       _loadCookiesBrowser(),
+      _loadShowLogs(),
     ]);
     if (widget.initialFormat != null) {
       final f = OutputFormat.values.where((e) => e.name == widget.initialFormat);
@@ -630,6 +637,20 @@ class _HomePageState extends State<HomePage> {
     setState(() => _cookiesBrowser = value);
   }
 
+  Future<void> _loadShowLogs() async {
+    final value = await Settings.getShowLogs();
+    // Niet terugzetten als de gebruiker de schakelaar al omzette terwijl deze
+    // load nog liep - dat liet de schakelaar naar de vorige stand springen.
+    if (_showLogsTouched) return;
+    _showLogs.value = value;
+  }
+
+  void _setShowLogs(bool value) {
+    _showLogsTouched = true;
+    _showLogs.value = value;
+    Settings.setShowLogs(value);
+  }
+
   Future<void> _loadPlaylistMode() async {
     final mode = await Settings.getPlaylistMode();
     setState(() => _playlistMode = mode);
@@ -674,7 +695,11 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    setState(() => _busy = true);
+    _service.resetCancel();
+    setState(() {
+      _busy = true;
+      _cancelling = false;
+    });
     try {
       // Android: initialiseert youtubedl-android. Desktop: yt-dlp.exe.
       await _service.ensureYtDlp(onLog: _addLog);
@@ -696,8 +721,11 @@ class _HomePageState extends State<HomePage> {
       }
     }
 
+    // Met aparte mappen per formaat is dit een andere map dan de hoofd-
+    // downloadmap die bovenaan de instellingen staat.
+    final outputDir = await Settings.getEffectiveDownloadDir(_format);
     try {
-      await Directory(_downloadDir).create(recursive: true);
+      await Directory(outputDir).create(recursive: true);
     } catch (e) {
       setState(() => _busy = false);
       _addLog('FOUT: map aanmaken mislukt: $e');
@@ -746,6 +774,8 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
+    if (_abortIfCancelled()) return;
+
     String? formatId = formatIdOverride;
     if (_format == OutputFormat.mp4 && formatId == null) {
       if (_videoQuality != PreferredVideoQuality.ask) {
@@ -792,6 +822,8 @@ class _HomePageState extends State<HomePage> {
       }
     }
 
+    if (_abortIfCancelled()) return;
+
     setState(() {
       _progress = 0;
       _status = 'Downloaden...';
@@ -808,7 +840,7 @@ class _HomePageState extends State<HomePage> {
     try {
       await for (final event in _service.download(
         url: url,
-        outputDir: _downloadDir,
+        outputDir: outputDir,
         isPlaylist: isPlaylist,
         format: _format,
         formatId: formatId,
@@ -837,7 +869,10 @@ class _HomePageState extends State<HomePage> {
         } else if (event is LogEvent) {
           _addLog(event.message);
         } else if (event is DownloadDoneEvent) {
-          if (!event.success) {
+          if (event.cancelled) {
+            _addLog('Download gestopt, half bestand verwijderd.');
+            _showInfo(t.downloadStopped);
+          } else if (!event.success) {
             _addLog('FOUT: ${event.error}');
             _showError(t.downloadFailed('${event.error}'));
           } else {
@@ -846,16 +881,49 @@ class _HomePageState extends State<HomePage> {
         }
       }
     } catch (e) {
-      _addLog('FOUT: $e');
-      _showError(t.downloadFailed('$e'));
+      // Na een stop is een uitzondering te verwachten (afgeschoten proces);
+      // die hoort niet als downloadfout op het scherm.
+      if (!_service.isCancelled) {
+        _addLog('FOUT: $e');
+        _showError(t.downloadFailed('$e'));
+      }
     }
 
     setState(() {
       _busy = false;
+      _cancelling = false;
       _progress = 0;
       _status = '';
       if (_activePlaylistId == playlistId) _activePlaylistId = null;
     });
+  }
+
+  /// Breekt de lopende download af: yt-dlp (en zijn kindprocessen) gaan uit,
+  /// het half gedownloade bestand wordt weggegooid en een playlist stopt
+  /// daarmee ook met de rest.
+  Future<void> _stopDownload() async {
+    if (!_busy || _cancelling) return;
+    setState(() {
+      _cancelling = true;
+      _status = t.stoppingStatus;
+    });
+    _addLog('Stoppen gevraagd door gebruiker.');
+    await _service.cancelDownload();
+  }
+
+  /// Tussen de losse yt-dlp-stappen door (playlist-probe, kwaliteiten ophalen)
+  /// draait er geen te onderbreken proces; daar kijken we zelf of er intussen
+  /// op stop is gedrukt.
+  bool _abortIfCancelled() {
+    if (!_service.isCancelled) return false;
+    setState(() {
+      _busy = false;
+      _cancelling = false;
+      _progress = 0;
+      _status = '';
+    });
+    _showInfo(t.downloadStopped);
+    return true;
   }
 
   Future<bool?> _askPlaylistChoice() {
@@ -1175,8 +1243,7 @@ class _HomePageState extends State<HomePage> {
                       Settings.setCookiesBrowser(value);
                     },
                     showLogs: _showLogs,
-                    onToggleShowLogs: (value) =>
-                        setState(() => _showLogs = value),
+                    onToggleShowLogs: _setShowLogs,
                     onSaveLogs: _saveLogs,
                     onShareLogs: _shareLogs,
                     onUpdateYtDlp: _updateYtDlp,
@@ -1230,6 +1297,18 @@ class _HomePageState extends State<HomePage> {
                         : const Icon(Icons.download),
                     label: Text(t.downloadButton),
                   ),
+                  if (_busy) ...[
+                    const SizedBox(width: 8),
+                    IconButton.filled(
+                      onPressed: _cancelling ? null : _stopDownload,
+                      icon: const Icon(Icons.stop),
+                      tooltip: t.stopButton,
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.red.shade700,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 12),

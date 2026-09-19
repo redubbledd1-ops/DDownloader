@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Downloader",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "Download de huidige tab via de lokale Downloader-app (Windows native host of Android-app).",
   "action": {
     "default_title": "Downloader",

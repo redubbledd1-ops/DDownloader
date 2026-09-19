@@ -396,16 +396,25 @@ class _HomePageState extends State<HomePage> {
     }).catchError((_) {});
   }
 
-  void _handleIncomingFromAndroid(dynamic args) {
+  Future<void> _handleIncomingFromAndroid(dynamic args) async {
     String? url;
     String? formatName;
+    Map? settingsPatch;
     if (args is String) {
       url = args;
     } else if (args is Map) {
       url = args['url']?.toString();
       formatName = args['format']?.toString();
+      // Op Android heeft de extentie geen native messaging, dus geen inbox.
+      // De gedeelde instellingen reizen daarom mee in de downoader://-link;
+      // zo veranderen extentie en app daar ook samen.
+      settingsPatch = args;
     }
     if (url == null || url.isEmpty) return;
+    if (settingsPatch != null) {
+      await _applyInboxSettings(settingsPatch);
+      if (!mounted) return;
+    }
     setState(() {
       _urlController.text = url!;
       if (formatName != null) {
@@ -524,6 +533,16 @@ class _HomePageState extends State<HomePage> {
     if (autoDownload is bool) {
       await Settings.setAutoDownloadOnClick(autoDownload);
       setState(() => _autoDownloadOnClick = autoDownload);
+    }
+    final cookiesBrowser = patch['cookiesBrowser']?.toString();
+    if (cookiesBrowser != null) {
+      final match = CookiesBrowser.values.where(
+        (e) => e.name == cookiesBrowser,
+      );
+      if (match.isNotEmpty) {
+        await Settings.setCookiesBrowser(match.first);
+        setState(() => _cookiesBrowser = match.first);
+      }
     }
   }
 

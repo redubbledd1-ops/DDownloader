@@ -246,12 +246,16 @@ class MainActivity : FlutterActivity() {
         val data = intent.data ?: return null
         if (data.scheme == "downoader") {
             val url = data.getQueryParameter("url") ?: return null
-            val format = data.getQueryParameter("format")
-            return if (format.isNullOrEmpty()) {
-                mapOf("url" to url)
-            } else {
-                mapOf("url" to url, "format" to format)
+            // Op Android heeft de extentie geen native messaging (en dus geen
+            // gedeelde inbox), daarom komen de gedeelde instellingen hier als
+            // query-parameters binnen. Dart past ze toe voordat de download
+            // start, zodat app en extentie dezelfde waarden houden.
+            val payload = mutableMapOf("url" to url)
+            for (key in listOf("format", "playlistMode", "preferredVideoQuality")) {
+                val value = data.getQueryParameter(key)
+                if (!value.isNullOrEmpty()) payload[key] = value
             }
+            return payload
         }
         val asString = data.toString()
         if (asString.startsWith("http://") || asString.startsWith("https://")) {

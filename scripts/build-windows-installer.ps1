@@ -21,7 +21,7 @@ Set-Location $root
 $releaseDir = Join-Path $root "build\windows\x64\runner\Release"
 $distDir = Join-Path $root "dist"
 $legacyRelease = Join-Path $root "Release"
-$version = "2.3.1"
+$version = "2.4.0"
 
 function Find-ISCC {
     $candidates = @(
@@ -97,6 +97,9 @@ Copy-Item -Force (Join-Path $extSrc "popup.js") $extDst
 Copy-Item -Force (Join-Path $extSrc "popup.html") $extDst
 Copy-Item -Force (Join-Path $extSrc "popup.css") $extDst -ErrorAction SilentlyContinue
 Copy-Item -Recurse -Force (Join-Path $extSrc "icons") (Join-Path $extDst "icons")
+# manifest.json verwijst naar content/tiktok.js; zonder deze map weigert
+# Chrome de hele unpacked extentie te laden.
+Copy-Item -Recurse -Force (Join-Path $extSrc "content") (Join-Path $extDst "content")
 Copy-Item -Force (Join-Path $root "installer\extension-guide.html") (Join-Path $extDst "INSTALL-EXTENSION.html")
 $idLine = (Get-Content $idFile -ErrorAction SilentlyContinue | Where-Object { $_ -like "ExtensionId=*" } | Select-Object -First 1)
 $extId = if ($idLine) { $idLine.Substring("ExtensionId=".Length).Trim() } else { "meecghmbaeipmpnopapdkknnjcgconeh" }

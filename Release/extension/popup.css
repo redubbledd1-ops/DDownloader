@@ -261,6 +261,26 @@ button.ghost:hover {
   color: var(--ok);
 }
 
+.settings-status {
+  margin: 0 0 10px;
+  font-size: 11px;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.settings-status.ok {
+  color: var(--ok);
+}
+
+.settings-status.error {
+  color: var(--danger);
+}
+
+.settings button.ghost {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
 .ghost-link {
   display: block;
   margin: 0 0 8px;

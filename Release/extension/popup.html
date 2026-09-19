@@ -71,9 +71,14 @@
 
     <details class="settings">
       <summary>App-instellingen</summary>
-      <p class="hint">Zelfde waarden als in de Windows-app (bron: exe). Wijzigingen worden meteen opgeslagen.</p>
+      <p class="hint">
+        Gedeeld met de Downloader-app: wat je hier wijzigt verandert ook in de
+        app, en andersom. Is de app/host even niet bereikbaar, dan bewaart de
+        extentie het lokaal en zet het alsnog door zodra dat wel kan.
+      </p>
+      <div id="settingsStatus" class="settings-status" hidden></div>
 
-      <label class="field">
+      <label class="field" id="downloadDirRow">
         <span>Downloadmap</span>
         <input id="downloadDir" type="text" spellcheck="false" />
       </label>
@@ -112,15 +117,30 @@
         </select>
       </label>
 
-      <label class="field row-check">
+      <label class="field" id="cookiesBrowserRow">
+        <span>Cookies uit browser (tegen YouTube-botcheck)</span>
+        <select id="cookiesBrowser">
+          <option value="none">Geen</option>
+          <option value="chrome">Chrome</option>
+          <option value="edge">Edge</option>
+          <option value="firefox">Firefox</option>
+          <option value="brave">Brave</option>
+        </select>
+      </label>
+
+      <label class="field row-check" id="autoDownloadRow">
         <input id="autoDownload" type="checkbox" />
         <span>Extentie-icoon downloadt meteen (i.p.v. dit venster openen)</span>
       </label>
 
-      <label class="field row-check">
+      <label class="field row-check" id="directDownloadRow">
         <input id="directDownloadEnabled" type="checkbox" checked />
         <span>"Direct Downloaden"-knop tonen (zonder app-UI)</span>
       </label>
+
+      <button id="settingsReset" type="button" class="ghost">
+        Standaardwaarden herstellen
+      </button>
     </details>
 
     <details class="settings debug-panel" id="debugPanel">

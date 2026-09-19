@@ -25,6 +25,13 @@ const preferredQualityEl = document.getElementById("preferredQuality");
 const githubLinkEl = document.getElementById("githubLink");
 const audioOnlyEl = document.getElementById("audioOnly");
 const directDownloadEnabledEl = document.getElementById("directDownloadEnabled");
+const cookiesBrowserEl = document.getElementById("cookiesBrowser");
+const settingsStatusEl = document.getElementById("settingsStatus");
+const settingsResetBtn = document.getElementById("settingsReset");
+const downloadDirRow = document.getElementById("downloadDirRow");
+const cookiesBrowserRow = document.getElementById("cookiesBrowserRow");
+const autoDownloadRow = document.getElementById("autoDownloadRow");
+const directDownloadRow = document.getElementById("directDownloadRow");
 const statusEl = document.getElementById("status");
 const progressEl = document.getElementById("progress");
 const debugLogEl = document.getElementById("debugLog");
@@ -71,6 +78,43 @@ let isAndroid = false;
 let settingsLoaded = false;
 let saveTimer = null;
 let saveInFlight = false;
+let saveQueued = false;
+let pendingSettingsChange = false;
+
+// De app-instellingen staan in de shared_preferences.json van de Windows-app
+// en gaan via de native host heen en weer. Die host is alleen niet altijd
+// bereikbaar: Chrome/Firefox op Android kennen geen native messaging, en op
+// Windows kan de host (nog) niet geregistreerd zijn. Voorheen bleef het
+// instellingenblok dan permanent uitgeschakeld -- setBusy(true) werd in dat
+// pad nooit meer teruggedraaid -- en negeerde scheduleSaveSettings elke
+// wijziging: wel zichtbaar, niet in te stellen. Daarom schrijven we nu altijd
+// eerst naar deze lokale spiegel en duwen we die naar de host zodra het kan.
+const SETTINGS_STORAGE_KEY = "appSettings";
+const SETTINGS_DIRTY_KEY = "appSettingsDirty";
+
+const PLAYLIST_MODES = ["ask", "playlist", "single"];
+const COOKIES_BROWSERS = ["none", "chrome", "edge", "firefox", "brave"];
+const VIDEO_QUALITIES = [
+  "ask",
+  "max",
+  "p2160",
+  "p1440",
+  "p1080",
+  "p720",
+  "p480",
+  "p360",
+  "p240",
+  "p144",
+];
+
+const DEFAULT_SETTINGS = {
+  downloadDir: "",
+  format: "mp4",
+  playlistMode: "ask",
+  autoDownloadOnClick: false,
+  preferredVideoQuality: "p1080",
+  cookiesBrowser: "none",
+};
 
 function setStatus(text, kind = "") {
   statusEl.hidden = !text;
@@ -116,20 +160,78 @@ function saveDirectDownloadEnabled(enabled) {
   chrome.storage.local.set({ directDownloadEnabled: enabled });
 }
 
+// Eigen regel onder het instellingenblok: het gewone statusveld hoort bij de
+// download en werd anders om en om overschreven.
+function setSettingsStatus(text, kind = "") {
+  if (!settingsStatusEl) return;
+  settingsStatusEl.hidden = !text;
+  settingsStatusEl.textContent = text || "";
+  settingsStatusEl.className = "settings-status" + (kind ? ` ${kind}` : "");
+  if (text) debugLog(`settings[${kind || "info"}]: ${text}`);
+}
+
+function pickOneOf(value, allowed, fallback) {
+  return allowed.includes(value) ? value : fallback;
+}
+
+// Een vaste vorm voor alles wat we opslaan, versturen of terugkrijgen, zodat
+// een half ingevulde host-respons of een oude lokale kopie nooit onbekende
+// waarden in de selects kan zetten (een select valt dan terug op leeg).
+function normalizeSettings(settings) {
+  const s = settings || {};
+  return {
+    downloadDir: typeof s.downloadDir === "string" ? s.downloadDir : "",
+    format: s.format === "mp3" ? "mp3" : "mp4",
+    playlistMode: pickOneOf(s.playlistMode, PLAYLIST_MODES, "ask"),
+    autoDownloadOnClick: Boolean(s.autoDownloadOnClick),
+    preferredVideoQuality: pickOneOf(
+      s.preferredVideoQuality,
+      VIDEO_QUALITIES,
+      DEFAULT_SETTINGS.preferredVideoQuality
+    ),
+    cookiesBrowser: pickOneOf(s.cookiesBrowser, COOKIES_BROWSERS, "none"),
+  };
+}
+
+function loadLocalSettings() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(
+      { [SETTINGS_STORAGE_KEY]: null, [SETTINGS_DIRTY_KEY]: false },
+      (res) => {
+        const raw = res[SETTINGS_STORAGE_KEY];
+        resolve({
+          settings: raw ? normalizeSettings(raw) : null,
+          dirty: res[SETTINGS_DIRTY_KEY] === true,
+        });
+      }
+    );
+  });
+}
+
+function saveLocalSettings(settings, dirty) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set(
+      {
+        [SETTINGS_STORAGE_KEY]: normalizeSettings(settings),
+        [SETTINGS_DIRTY_KEY]: Boolean(dirty),
+      },
+      () => resolve()
+    );
+  });
+}
+
+// Alleen de download-acties blokkeren. De velden onder "App-instellingen"
+// bewust niet: die horen altijd bewerkbaar te zijn, ook tijdens een download
+// en ook als de host/app onbereikbaar is. Anders bleef het hele blok voorgoed
+// uitgeschakeld zodra een ping mislukte.
 function setBusy(value) {
   busy = value;
   const hasUrl = Boolean(urlEl.value.trim());
   refreshBtn.disabled = value;
   sendBtn.disabled = value || !hasUrl;
   downloadBtn.disabled = value || !hasUrl;
-  formatEl.disabled = value;
-  playlistEl.disabled = value;
-  downloadDirEl.disabled = value;
   qualityEl.disabled = value || !formats.length;
   urlEl.disabled = value;
-  autoDownloadEl.disabled = value;
-  preferredQualityEl.disabled = value;
-  audioOnlyEl.disabled = value;
 }
 
 function fileNameOf(path) {
@@ -219,13 +321,52 @@ function formatSize(bytes) {
   return `${mb.toFixed(1)} MB`;
 }
 
-function applySettings(settings) {
+// Opties:
+//   baseline - de waarden zoals de velden er stonden voordat we de host
+//              bevroegen; wijkt een veld daarvan af, dan heeft de gebruiker
+//              het intussen zelf aangepast en laten we het met rust.
+//   sent     - de patch die we zojuist naar de host stuurden.
+// De host echoot bij elke opslag de genormaliseerde instellingen terug en
+// laat een lege downloadDir bewust ongemoeid. Klakkeloos terugschrijven zette
+// het pad tijdens het typen steeds terug naar de oude waarde -- het veld leek
+// daardoor niet te bewerken.
+function applySettings(settings, options) {
   if (!settings) return;
-  downloadDirEl.value = settings.downloadDir || "";
-  formatEl.value = settings.format === "mp3" ? "mp3" : "mp4";
-  playlistEl.value = settings.playlistMode || "ask";
-  autoDownloadEl.checked = Boolean(settings.autoDownloadOnClick);
-  preferredQualityEl.value = settings.preferredVideoQuality || "p1080";
+  const s = normalizeSettings(settings);
+  const { baseline, sent } = options || {};
+  const active = document.activeElement;
+  const busyWith = (el, key, current) =>
+    el === active || (baseline && baseline[key] !== current);
+
+  const skipDir =
+    busyWith(downloadDirEl, "downloadDir", downloadDirEl.value.trim()) ||
+    // Leeg verstuurd betekent: de gebruiker is het pad aan het herschrijven.
+    // De oude map terugzetten maakt het veld onbruikbaar.
+    Boolean(sent && !sent.downloadDir);
+  if (!skipDir) downloadDirEl.value = s.downloadDir;
+
+  if (!busyWith(formatEl, "format", formatEl.value)) formatEl.value = s.format;
+  if (!busyWith(playlistEl, "playlistMode", playlistEl.value)) {
+    playlistEl.value = s.playlistMode;
+  }
+  if (!busyWith(autoDownloadEl, "autoDownloadOnClick", autoDownloadEl.checked)) {
+    autoDownloadEl.checked = s.autoDownloadOnClick;
+  }
+  if (
+    !busyWith(
+      preferredQualityEl,
+      "preferredVideoQuality",
+      preferredQualityEl.value
+    )
+  ) {
+    preferredQualityEl.value = s.preferredVideoQuality;
+  }
+  if (
+    cookiesBrowserEl &&
+    !busyWith(cookiesBrowserEl, "cookiesBrowser", cookiesBrowserEl.value)
+  ) {
+    cookiesBrowserEl.value = s.cookiesBrowser;
+  }
   updateFormatUi();
 }
 
@@ -479,23 +620,88 @@ async function loadActiveTabUrl() {
   debugLog("URL-veld gezet", urlEl.value);
 }
 
-async function loadSettings() {
-  const res = await sendNative({ cmd: "getSettings" });
-  applySettings(res.settings);
-}
-
 function currentSettingsPatch() {
-  return {
+  return normalizeSettings({
     downloadDir: downloadDirEl.value.trim(),
     format: formatEl.value,
     playlistMode: playlistEl.value,
     autoDownloadOnClick: autoDownloadEl.checked,
     preferredVideoQuality: preferredQualityEl.value,
-  };
+    cookiesBrowser: cookiesBrowserEl ? cookiesBrowserEl.value : "none",
+  });
+}
+
+// Toont meteen de laatst bekende waarden, ook zonder host. Daarna is de host
+// (= de app) leidend, behalve als er nog niet-doorgezette wijzigingen
+// klaarstaan: die winnen, anders draait de app ze stilletjes terug.
+async function loadSettings() {
+  const local = await loadLocalSettings();
+  // Zonder lokale kopie expliciet de standaardwaarden zetten: de selects
+  // zouden anders op hun eerste <option> blijven staan (bv. kwaliteit
+  // "Altijd vragen" i.p.v. de 1080p die de app als standaard hanteert).
+  applySettings(local.settings || DEFAULT_SETTINGS);
+  settingsLoaded = true;
+
+  if (!hostReady) {
+    if (local.dirty) {
+      setSettingsStatus(
+        "Lokaal opgeslagen. Gaat naar de app zodra die bereikbaar is."
+      );
+    }
+    return;
+  }
+
+  if (local.dirty && local.settings) {
+    if (await pushSettingsToHost(local.settings)) return;
+  }
+
+  try {
+    const res = await sendNative({ cmd: "getSettings" });
+    applySettings(res.settings, {
+      baseline: local.settings || DEFAULT_SETTINGS,
+    });
+    await saveLocalSettings(res.settings, false);
+    setSettingsStatus("");
+  } catch (e) {
+    debugLog("getSettings mislukt", (e && e.message) || String(e));
+    setSettingsStatus(
+      "Kon de app-instellingen niet lezen; lokale waarden getoond.",
+      "error"
+    );
+  }
+}
+
+// Enige plek die naar de host schrijft. De host legt het vast in dezelfde
+// shared_preferences.json als de app en duwt de nieuwe waarden via de inbox
+// naar een draaiende app -- zo veranderen extentie en app altijd samen.
+async function pushSettingsToHost(settings) {
+  try {
+    const res = await sendNative({ cmd: "setSettings", settings });
+    const saved = res && res.settings ? res.settings : settings;
+    applySettings(saved, { baseline: settings, sent: settings });
+    await saveLocalSettings(saved, false);
+    setSettingsStatus(
+      settings.downloadDir
+        ? "Opgeslagen - ook in de Downloader-app."
+        : "Opgeslagen. Downloadmap is leeg, dus de app houdt de huidige map aan.",
+      "ok"
+    );
+    return true;
+  } catch (e) {
+    await saveLocalSettings(settings, true);
+    setSettingsStatus(
+      `Lokaal opgeslagen, app niet bijgewerkt (${
+        (e && e.message) || String(e)
+      }). Bij de volgende keer openen proberen we het opnieuw.`,
+      "error"
+    );
+    return false;
+  }
 }
 
 function scheduleSaveSettings() {
-  if (!settingsLoaded || !hostReady) return;
+  if (!settingsLoaded) return;
+  pendingSettingsChange = true;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     autoSaveSettings().catch(() => {});
@@ -503,29 +709,55 @@ function scheduleSaveSettings() {
 }
 
 async function autoSaveSettings() {
-  if (!settingsLoaded || !hostReady) return;
+  if (!settingsLoaded) return;
   if (saveInFlight) {
-    scheduleSaveSettings();
+    // Niet de timer opnieuw starten (dat kon tijdens typen eindeloos
+    // uitstellen); een keer natrappen zodra de lopende save klaar is.
+    saveQueued = true;
     return;
   }
   saveInFlight = true;
+  clearTimeout(saveTimer);
   try {
-    const res = await sendNative({
-      cmd: "setSettings",
-      settings: currentSettingsPatch(),
-    });
-    if (res && res.settings) applySettings(res.settings);
-  } catch (e) {
-    setStatus(e.message || String(e), "error");
+    const patch = currentSettingsPatch();
+    // Altijd eerst lokaal vastleggen: valt de host weg, dan is de keuze van
+    // de gebruiker niet verdwenen.
+    await saveLocalSettings(patch, true);
+    pendingSettingsChange = false;
+    if (!hostReady) {
+      setSettingsStatus(
+        "Lokaal opgeslagen. Gaat naar de app zodra die bereikbaar is."
+      );
+      return;
+    }
+    await pushSettingsToHost(patch);
   } finally {
     saveInFlight = false;
+    if (saveQueued) {
+      saveQueued = false;
+      scheduleSaveSettings();
+    }
   }
 }
 
+async function resetSettings() {
+  applySettings(DEFAULT_SETTINGS);
+  clearTimeout(saveTimer);
+  pendingSettingsChange = true;
+  await autoSaveSettings();
+}
+
+// Op Android is er geen native messaging, dus reizen de instellingen mee in
+// de deeplink; de app slaat ze daar op. Alleen waarden die op een telefoon
+// betekenis hebben: een Windows-downloadmap of --cookies-from-browser zouden
+// de app daar juist kapot zetten.
 function androidAppLink(url, format) {
   const u = new URL("downoader://download");
   u.searchParams.set("url", url);
   if (format) u.searchParams.set("format", format);
+  const s = currentSettingsPatch();
+  u.searchParams.set("playlistMode", s.playlistMode);
+  u.searchParams.set("preferredVideoQuality", s.preferredVideoQuality);
   return u.href;
 }
 
@@ -604,13 +836,16 @@ async function sendToApp() {
   progressEl.hidden = true;
   setStatus("Doorsturen naar Windows-app…");
   try {
+    const shared = currentSettingsPatch();
     const res = await sendNative({
       cmd: "sendToApp",
       url,
       format: formatEl.value,
       formatId: chosenFormatId(),
-      downloadDir: downloadDirEl.value.trim(),
-      playlistMode: playlistEl.value,
+      downloadDir: shared.downloadDir,
+      playlistMode: shared.playlistMode,
+      preferredVideoQuality: shared.preferredVideoQuality,
+      cookiesBrowser: shared.cookiesBrowser,
     });
     setStatus(
       res.launched
@@ -781,8 +1016,26 @@ directDownloadEnabledEl.addEventListener("change", () => {
 playlistEl.addEventListener("change", scheduleSaveSettings);
 preferredQualityEl.addEventListener("change", scheduleSaveSettings);
 autoDownloadEl.addEventListener("change", scheduleSaveSettings);
+cookiesBrowserEl?.addEventListener("change", scheduleSaveSettings);
 downloadDirEl.addEventListener("input", scheduleSaveSettings);
 downloadDirEl.addEventListener("change", scheduleSaveSettings);
+// Het pad is het enige vrije tekstveld: bij verlaten meteen wegschrijven in
+// plaats van te wachten op de debounce, die bij het sluiten van de popup
+// verdwijnt.
+downloadDirEl.addEventListener("blur", () => {
+  if (!pendingSettingsChange) return;
+  autoSaveSettings().catch(() => {});
+});
+settingsResetBtn?.addEventListener("click", () => {
+  resetSettings().catch(() => {});
+});
+// Popup dicht = pending debounce weg. De lokale kopie leggen we nog vast; de
+// host krijgt hem bij de volgende opening via de dirty-vlag.
+window.addEventListener("pagehide", () => {
+  if (!settingsLoaded || !pendingSettingsChange) return;
+  clearTimeout(saveTimer);
+  saveLocalSettings(currentSettingsPatch(), true);
+});
 refreshBtn.addEventListener("click", refreshFormats);
 sendBtn.addEventListener("click", sendToApp);
 downloadBtn.addEventListener("click", () => downloadHere({ auto: false }));
@@ -862,20 +1115,33 @@ debugRedetectBtn?.addEventListener("click", async () => {
     isAndroid = false;
   }
   if (isAndroid) {
-    const settingsBlock = document.querySelector("details.settings");
-    if (settingsBlock) settingsBlock.hidden = true;
+    // Het instellingenblok blijft staan en blijft bewerkbaar: het wordt
+    // lokaal bewaard en gaat via de downoader://-link mee naar de app. Alleen
+    // de opties die native messaging of een Windows-pad nodig hebben
+    // verbergen we, die zouden daar toch niets doen.
+    if (downloadDirRow) downloadDirRow.hidden = true;
+    if (cookiesBrowserRow) cookiesBrowserRow.hidden = true;
+    if (autoDownloadRow) autoDownloadRow.hidden = true;
+    if (directDownloadRow) directDownloadRow.hidden = true;
     downloadBtn.hidden = true;
     sendBtn.textContent = "Naar App";
   }
   const directDownloadEnabled = await loadDirectDownloadEnabled();
   directDownloadEnabledEl.checked = directDownloadEnabled;
   applyDirectDownloadEnabled(!isAndroid && directDownloadEnabled);
-  updateFormatUi();
+  // Lokale kopie eerst tonen: ook als de host straks niet opneemt staan hier
+  // de waarden die de gebruiker kent -- en kan hij ze meteen wijzigen.
+  await loadSettings();
   setBusy(true);
   showGithubLink(false);
   try {
     if (isAndroid || !hasNativeMessaging()) {
       setBusy(false);
+      setSettingsStatus(
+        isAndroid
+          ? "Instellingen gelden voor de extentie en gaan mee naar de app bij Naar App."
+          : "Geen native messaging in deze browser - instellingen worden lokaal bewaard."
+      );
       if (!urlEl.value.trim()) {
         setStatus("Geen downloadbare URL op deze tab.", "error");
       } else if (
@@ -906,8 +1172,9 @@ debugRedetectBtn?.addEventListener("click", async () => {
     }
     debugLog("Native host ping", ping);
     hostReady = true;
+    // Tweede ronde, nu mét host: pending wijzigingen doorduwen naar de app,
+    // anders de app-waarden overnemen.
     await loadSettings();
-    settingsLoaded = true;
 
     const hostVer = ping?.version ? `host v${ping.version}` : "host";
     const hostPathHint = ping?.hostPath
@@ -982,7 +1249,12 @@ debugRedetectBtn?.addEventListener("click", async () => {
         "error"
       );
       showGithubLink(true);
-      // Zonder host werkt niets hier — knoppen uitgeschakeld laten.
+      setSettingsStatus(
+        "App niet bereikbaar - instellingen worden lokaal bewaard en " +
+          "doorgezet zodra de app er weer is."
+      );
+      // Zonder host werken de download-acties niet - die knoppen blijven
+      // uitgeschakeld. De instellingen blijven wél bewerkbaar.
     } else {
       setStatus(e.message || String(e), "error");
       setBusy(false);

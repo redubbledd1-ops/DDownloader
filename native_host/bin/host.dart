@@ -191,7 +191,7 @@ Future<void> handleMessage(Map<String, dynamic> msg) async {
       final settings = await readSettings();
       await writeMessage({
         'ok': true,
-        'version': '2.3.1',
+        'version': '2.4.0',
         'hostPath': Platform.resolvedExecutable,
         'ytDlp': _quickYtDlpProbe(),
         'prefsPath': prefsFile().path,
@@ -266,6 +266,9 @@ Future<void> handleMessage(Map<String, dynamic> msg) async {
         'downloadDir': msg['downloadDir'] ?? settings['downloadDir'],
         'format': format,
         'playlistMode': msg['playlistMode'] ?? settings['playlistMode'],
+        'preferredVideoQuality':
+            msg['preferredVideoQuality'] ?? settings['preferredVideoQuality'],
+        'cookiesBrowser': msg['cookiesBrowser'] ?? settings['cookiesBrowser'],
       };
       // Schrijf ook naar prefs voor als de app nog niet draait.
       await writeSettings(settingsPatch);

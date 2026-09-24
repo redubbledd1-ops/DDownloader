@@ -3,10 +3,10 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:archive/archive.dart';
 
-/// Chrome/Edge Native Messaging host for Downloader.
+/// Chrome/Edge Native Messaging host for DDownloader.
 ///
 /// Settings komen uit / gaan naar dezelfde shared_preferences.json als de
-/// Flutter Windows-app (%APPDATA%\com.example\Downloader\).
+/// Flutter Windows-app (%APPDATA%\com.example\DDownloader\).
 ///
 /// Commands:
 ///   ping | getSettings | setSettings | formats | download | sendToApp |
@@ -357,7 +357,7 @@ Future<void> handleMessage(Map<String, dynamic> msg) async {
 
 Directory appDataDir() {
   final roaming = Platform.environment['APPDATA'] ?? '';
-  final dir = Directory('$roaming\\com.example\\Downloader');
+  final dir = Directory('$roaming\\com.example\\DDownloader');
   dir.createSync(recursive: true);
   return dir;
 }
@@ -436,9 +436,10 @@ void appendToInbox(Map<String, dynamic> job) {
 
 Map<String, dynamic> loadPrefsRaw() {
   final merged = <String, dynamic>{};
-  // Oude builds schreven naar com.example\downoader; huidige ProductName is Downloader.
+  // Oudste eerst, nieuwste laatst (wint bij overlap): downoader (zeer oud),
+  // Downloader (2.4.0), DDownloader (huidige ProductName na de rebrand).
   final roaming = Platform.environment['APPDATA'] ?? '';
-  for (final name in ['downoader', 'Downloader']) {
+  for (final name in ['downoader', 'Downloader', 'DDownloader']) {
     final file = File('$roaming\\com.example\\$name\\shared_preferences.json');
     if (!file.existsSync()) continue;
     try {
@@ -456,7 +457,7 @@ Map<String, dynamic> loadPrefsRaw() {
 }
 
 void savePrefsRaw(Map<String, dynamic> data) {
-  // Altijd naar de canonieke Downloader-map schrijven.
+  // Altijd naar de canonieke DDownloader-map schrijven.
   final file = prefsFile();
   file.parent.createSync(recursive: true);
   file.writeAsStringSync(const JsonEncoder.withIndent('  ').convert(data));
@@ -630,12 +631,11 @@ Future<bool> sendToApp({
 
 Future<bool> isDownoaderRunning() async {
   try {
-    final result = await Process.run('tasklist', [
-      '/FI',
-      'IMAGENAME eq downoader.exe',
-      '/NH',
-    ]);
-    return result.stdout.toString().toLowerCase().contains('downoader.exe');
+    final result = await Process.run('tasklist', ['/NH']);
+    final out = result.stdout.toString().toLowerCase();
+    // Nieuwe exe-naam (DDownloader.exe) én de oude (downoader.exe, pre-rebrand
+    // installaties die nog niet zijn geupdatet).
+    return out.contains('ddownloader.exe') || out.contains('downoader.exe');
   } catch (_) {
     return false;
   }
@@ -646,6 +646,13 @@ Future<String?> guessAppExe() async {
   final pf86 = Platform.environment['ProgramFiles(x86)'] ?? r'C:\Program Files (x86)';
   final pf = Platform.environment['ProgramFiles'] ?? r'C:\Program Files';
   final candidates = <String>[
+    '$hostDir\\DDownloader.exe',
+    '$hostDir\\..\\DDownloader.exe',
+    '$pf86\\DDownloaderD\\DDownloader.exe',
+    '$pf\\DDownloaderD\\DDownloader.exe',
+    '$hostDir\\..\\..\\Release\\DDownloader.exe',
+    '$hostDir\\..\\..\\..\\build\\windows\\x64\\runner\\Release\\DDownloader.exe',
+    // Oude namen: pre-rebrand installaties die nog niet zijn geupdatet.
     '$hostDir\\downoader.exe',
     '$hostDir\\..\\downoader.exe',
     '$pf86\\DownloaderD\\downoader.exe',
@@ -808,6 +815,7 @@ Future<String?> ensureFfmpegDir({void Function(String)? onLog}) async {
   final tools = _installToolsDir();
   final candidates = <String>[
     tools,
+    '$roaming\\com.example\\DDownloader\\ffmpeg',
     '$roaming\\com.example\\Downloader\\ffmpeg',
     '$roaming\\com.example\\downoader\\ffmpeg',
   ];
@@ -859,6 +867,7 @@ Future<List<String>> resolveJsRuntimeArgs() async {
   final tools = _installToolsDir();
   final candidates = <String>[
     '$tools\\deno.exe',
+    '$roaming\\com.example\\DDownloader\\deno\\deno.exe',
     '$roaming\\com.example\\Downloader\\deno\\deno.exe',
     '$roaming\\com.example\\downoader\\deno\\deno.exe',
   ];

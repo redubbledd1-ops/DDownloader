@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Downloader",
+  "name": "DDownloader",
   "version": "2.4.0",
-  "description": "Download de huidige tab via de lokale Downloader-app (Windows native host of Android-app).",
+  "description": "Download de huidige tab via de lokale DDownloader-app (Windows native host of Android-app).",
   "action": {
-    "default_title": "Downloader",
+    "default_title": "DDownloader",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",

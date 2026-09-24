@@ -93,7 +93,7 @@ class _DownoaderAppState extends State<DownoaderApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Downloader',
+      title: 'DDownloader',
       theme: buildAppTheme(Brightness.light),
       darkTheme: buildAppTheme(Brightness.dark),
       themeMode: _themeMode,
@@ -1093,7 +1093,7 @@ class _HomePageState extends State<HomePage> {
     final text = _logs.join('\n');
     try {
       if (Platform.isAndroid) {
-        await _service.shareText(text, subject: 'Downloader logs');
+        await _service.shareText(text, subject: 'DDownloader logs');
       } else {
         await Clipboard.setData(ClipboardData(text: text));
         _showInfo(t.logsCopied);
@@ -1495,8 +1495,8 @@ class _AppBarTitle extends StatelessWidget {
   const _AppBarTitle();
 
   static const _iconAsset = 'Download.icoon.png';
-  // Ruimte voor icoon (28) + gap (10) + "Downloader" (~95) ≈ 135.
-  static const _minWidthForText = 140.0;
+  // Ruimte voor icoon (28) + gap (10) + "DDownloader" (~105) ≈ 145.
+  static const _minWidthForText = 150.0;
 
   @override
   Widget build(BuildContext context) {
@@ -1518,7 +1518,7 @@ class _AppBarTitle extends StatelessWidget {
             ),
             if (showText) ...[
               const SizedBox(width: 10),
-              const Text('Downloader'),
+              const Text('DDownloader'),
             ],
           ],
         );

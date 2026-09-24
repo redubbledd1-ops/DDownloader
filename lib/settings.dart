@@ -27,12 +27,12 @@ class Settings {
   static const _keyDownloadDirMp4 = 'download_dir_mp4';
   static const _keyShowLogs = 'show_logs';
 
-  /// Zelfde map als shared_preferences op Windows: Roaming\com.example\Downloader
+  /// Zelfde map als shared_preferences op Windows: Roaming\com.example\DDownloader
   static Future<Directory> appDataDir() async {
     if (Platform.isWindows) {
       final roaming = Platform.environment['APPDATA'];
       if (roaming != null && roaming.isNotEmpty) {
-        final dir = Directory(p.join(roaming, 'com.example', 'Downloader'));
+        final dir = Directory(p.join(roaming, 'com.example', 'DDownloader'));
         await dir.create(recursive: true);
         return dir;
       }
@@ -140,19 +140,25 @@ class Settings {
     return p.join(Directory.current.path, 'Downloads');
   }
 
+  // Oude ProductNames, nieuwste eerst: 'Downloader' (2.4.0) voor de huidige
+  // rebrand naar 'DDownloader', 'downoader' (lowercase) van nog verder terug.
+  static const _legacyProductNames = ['Downloader', 'downoader'];
+
   static Future<String?> _readLegacyDownloadDir() async {
     if (!Platform.isWindows) return null;
     final roaming = Platform.environment['APPDATA'];
     if (roaming == null) return null;
-    final file = File(p.join(roaming, 'com.example', 'downoader', 'shared_preferences.json'));
-    if (!await file.exists()) return null;
-    try {
-      final data = jsonDecode(await file.readAsString());
-      if (data is Map && data['flutter.download_dir'] is String) {
-        final v = data['flutter.download_dir'] as String;
-        if (v.isNotEmpty) return v;
-      }
-    } catch (_) {}
+    for (final name in _legacyProductNames) {
+      final file = File(p.join(roaming, 'com.example', name, 'shared_preferences.json'));
+      if (!await file.exists()) continue;
+      try {
+        final data = jsonDecode(await file.readAsString());
+        if (data is Map && data['flutter.download_dir'] is String) {
+          final v = data['flutter.download_dir'] as String;
+          if (v.isNotEmpty) return v;
+        }
+      } catch (_) {}
+    }
     return null;
   }
 

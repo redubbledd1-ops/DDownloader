@@ -46,8 +46,8 @@ if (-not $SkipFlutterBuild) {
 } else {
     Write-Host "Skip Flutter build"
 }
-if (-not (Test-Path (Join-Path $releaseDir "downoader.exe"))) {
-    throw "Release-build ontbreekt: $releaseDir\downoader.exe"
+if (-not (Test-Path (Join-Path $releaseDir "DDownloader.exe"))) {
+    throw "Release-build ontbreekt: $releaseDir\DDownloader.exe"
 }
 
 Write-Host "=== 2/5 Tools bundelen (yt-dlp, ffmpeg, deno) ===" -ForegroundColor Cyan
@@ -129,7 +129,7 @@ $iss = Join-Path $root "installer\Downloader.iss"
     "/DMyExtensionId=$extId" `
     $iss
 
-$setup = Join-Path $distDir "DownloaderSetup-$version.exe"
+$setup = Join-Path $distDir "DDownloaderSetup-$version.exe"
 if (-not (Test-Path $setup)) {
     throw "Setup.exe niet aangemaakt: $setup"
 }

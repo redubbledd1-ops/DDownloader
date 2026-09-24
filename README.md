@@ -1,4 +1,4 @@
-﻿# Downloader
+﻿# DDownloader
 
 Flutter app (Windows + Android) to download video/audio via yt-dlp, plus a browser extension (Chrome, Edge, Firefox desktop, Firefox Android) that sends links and settings to the local app — no web server.
 
@@ -14,9 +14,9 @@ See [`LICENSE`](LICENSE). Short version:
 
 ## Windows use
 
-1. Go to [Releases](https://github.com/redubbledd1-ops/Downloader/releases)
-2. Download `DownloaderSetup-1.2.4.exe` (or the latest Setup)
-3. Run the installer (default folder: `C:\Program Files (x86)\DownloaderD` — app, tools, host, and extension all live there)
+1. Go to [Releases](https://github.com/redubbledd1-ops/DDownloader/releases)
+2. Download `DDownloaderSetup-1.2.4.exe` (or the latest Setup)
+3. Run the installer (default folder: `C:\Program Files (x86)\DDownloaderD` — app, tools, host, and extension all live there)
 
 During setup you choose a **download folder**. If Chrome, Edge and/or **Firefox** are installed, the installer shows optional tasks to set up that browser’s extension (same `extension` folder for all). For Firefox it registers native messaging and can open `about:debugging` so you can **Load Temporary Add-on** once.
 
@@ -24,34 +24,34 @@ Windows may show a SmartScreen ("Windows protected your PC") warning because the
 
 ## Android use
 
-1. Go to [Releases](https://github.com/redubbledd1-ops/Downloader/releases)
-2. Download `Downloader-1.2.4.apk` — this is the **Android phone/tablet app** (not a browser extension)
+1. Go to [Releases](https://github.com/redubbledd1-ops/DDownloader/releases)
+2. Download `DDownloader-1.2.4.apk` — this is the **Android phone/tablet app** (not a browser extension)
 3. Open the file on your device → allow install from unknown sources if asked → install
 
-The Chrome/Edge/Firefox extension talks to the Windows app via native messaging. On Android, the Firefox extension opens the APK app (`downoader://download?url=…`). You can also share a link to the Downloader app.
+The Chrome/Edge/Firefox extension talks to the Windows app via native messaging. On Android, the Firefox extension opens the APK app (`downoader://download?url=…`). You can also share a link to the DDownloader app.
 
 ### Publishing a release (maintainers)
 
 Built files land in `dist\` locally (gitignored). Upload them to **GitHub Releases** — do not commit the `.exe` / `.apk` into the repo.
 
 ```powershell
-# Windows Setup → dist\DownloaderSetup-1.2.4.exe
+# Windows Setup → dist\DDownloaderSetup-1.2.4.exe
 powershell -ExecutionPolicy Bypass -File scripts\build-windows-installer.ps1
 
-# Android APK → dist\Downloader-1.2.4.apk
+# Android APK → dist\DDownloader-1.2.4.apk
 flutter build apk --release
 New-Item -ItemType Directory -Force -Path dist | Out-Null
-Copy-Item -Force build\app\outputs\flutter-apk\app-release.apk dist\Downloader-1.2.4.apk
+Copy-Item -Force build\app\outputs\flutter-apk\app-release.apk dist\DDownloader-1.2.4.apk
 
 # Create GitHub release (from main)
 git push origin main
-gh release create v1.2.4 "dist\DownloaderSetup-1.2.4.exe" "dist\Downloader-1.2.4.apk" --title "Downloader 1.2.4" --notes "Playlist-downloads: grouped/expandable list with progress spinner. Fixes Android build (MainActivity onBackPressed)."
+gh release create v1.2.4 "dist\DDownloaderSetup-1.2.4.exe" "dist\DDownloader-1.2.4.apk" --title "DDownloader 1.2.4" --notes "Playlist-downloads: grouped/expandable list with progress spinner. Fixes Android build (MainActivity onBackPressed)."
 
 # Or add files to an existing release
-gh release upload v1.2.4 "dist\Downloader-1.2.4.apk" --clobber
+gh release upload v1.2.4 "dist\DDownloader-1.2.4.apk" --clobber
 ```
 
-Release page: `https://github.com/redubbledd1-ops/Downloader/releases/tag/v1.2.4`
+Release page: `https://github.com/redubbledd1-ops/DDownloader/releases/tag/v1.2.4`
 
 ## Developers — build the Windows installer
 
@@ -64,7 +64,7 @@ This will:
 1. `flutter build windows --release`
 2. Download yt-dlp / ffmpeg / deno into `build\...\Release\tools\`
 3. Compile the native host into `Release\host\`
-4. Build Setup.exe with Inno Setup → `dist\DownloaderSetup-1.2.4.exe`
+4. Build Setup.exe with Inno Setup → `dist\DDownloaderSetup-1.2.4.exe`
 
 Requires Flutter SDK + Dart SDK. Inno Setup 6+ is installed via winget if missing.
 
@@ -77,7 +77,7 @@ flutter run -d windows
 flutter run -d <android-device>
 ```
 
-Without a bundled `tools\` folder, the app downloads yt-dlp/ffmpeg/deno on first use into `%APPDATA%\com.example\Downloader\` (dev fallback). A legacy manual copy at `C:\Program Files\yt-dlpd.exe` still works.
+Without a bundled `tools\` folder, the app downloads yt-dlp/ffmpeg/deno on first use into `%APPDATA%\com.example\DDownloader\` (dev fallback). A legacy manual copy at `C:\Program Files\yt-dlpd.exe` still works.
 
 On Windows startup the app stores its own path (`flutter.app_exe`) so the extension can launch it.
 
@@ -90,15 +90,15 @@ flowchart LR
   Tab[Browser_tab] --> Ext[Extension]
   Ext -->|Native_Messaging| Host[native_host]
   Host -->|settings_prefs| Prefs[shared_preferences]
-  Host -->|inbox_and_completed_log| App[downoader.exe]
+  Host -->|inbox_and_completed_log| App[DDownloader.exe]
   App --> YtDlp[yt-dlp]
   Ext -->|downoader_scheme| AndroidApp[Android_APK]
 ```
 
-- **Settings** in the popup = global app settings (download folder, format, playlist mode). Changes save immediately (no Save button). Source: `%APPDATA%\com.example\Downloader\shared_preferences.json` (same as the exe). Video quality is hidden when the format is MP3.
-- **Send to app** (Windows) puts the tab URL in an inbox; a running app picks it up and starts the download. If the app is not running, `downoader.exe` is started.
+- **Settings** in the popup = global app settings (download folder, format, playlist mode). Changes save immediately (no Save button). Source: `%APPDATA%\com.example\DDownloader\shared_preferences.json` (same as the exe). Video quality is hidden when the format is MP3.
+- **Send to app** (Windows) puts the tab URL in an inbox; a running app picks it up and starts the download. If the app is not running, `DDownloader.exe` is started.
 - **Download here** (Windows) runs yt-dlp via the native host. Finished files are written to the same download list as the exe (live if the app is open, otherwise on next launch).
-- **Firefox Android**: native messaging does not exist; **Naar App** opens the Downloader APK with the current URL.
+- **Firefox Android**: native messaging does not exist; **Naar App** opens the DDownloader APK with the current URL.
 
 ### 1. Load the extension (one folder)
 
@@ -118,7 +118,7 @@ flowchart LR
 Firefox Android does **not** support `background.service_worker`. Use the helper (builds a copy of the same `extension/` folder without that key):
 
 ```powershell
-# USB-debugging + Firefox "Remote Debugging via USB" aan, Downloader-APK geïnstalleerd
+# USB-debugging + Firefox "Remote Debugging via USB" aan, DDownloader-APK geïnstalleerd
 powershell -ExecutionPolicy Bypass -File scripts\run-firefox-android.ps1
 # of met vast device-id:
 powershell -ExecutionPolicy Bypass -File scripts\run-firefox-android.ps1 -Device 437d872e
@@ -131,7 +131,7 @@ powershell -ExecutionPolicy Bypass -File scripts\prepare-firefox-android.ps1
 npx web-ext run -t firefox-android --firefox-apk org.mozilla.firefox --android-device=437d872e --source-dir extension-firefox-android
 ```
 
-On Android the popup button **Naar App** opens the Downloader APK (`downoader://download?url=…`). There is no native messaging on mobile.
+On Android the popup button **Naar App** opens the DDownloader APK (`downoader://download?url=…`). There is no native messaging on mobile.
 
 ### 2. Register the native host (Windows desktop)
 
@@ -145,7 +145,7 @@ dart compile exe bin/host.dart -o ..\extension\host\downoader_native_host.exe
 powershell -ExecutionPolicy Bypass -File scripts\install-native-host.ps1
 ```
 
-Optional: `-AppExe "C:\path\to\downoader.exe"` `-Browsers chrome|edge|firefox|both|all`
+Optional: `-AppExe "C:\path\to\DDownloader.exe"` `-Browsers chrome|edge|firefox|both|all`
 
 The host uses separate Chrome/Edge and Firefox manifests (Firefox rejects Chrome’s `allowed_origins` key). Firefox ID: `downloader@downoader.app`.
 
@@ -174,6 +174,6 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall-native-host.ps1
 ## Notes
 
 - No Flutter web target: the browser cannot run yt-dlp.
-- After moving `downoader.exe` or changing the Chrome extension ID: re-run the install script.
+- After moving `DDownloader.exe` or changing the Chrome extension ID: re-run the install script.
 - To update yt-dlp in an installed app: replace `{installDir}\tools\yt-dlp.exe`, or delete the APPDATA copy so the bundled one is used again.
 

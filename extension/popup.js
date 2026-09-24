@@ -684,7 +684,7 @@ async function pushSettingsToHost(settings) {
     await saveLocalSettings(saved, false);
     setSettingsStatus(
       settings.downloadDir
-        ? "Opgeslagen - ook in de Downloader-app."
+        ? "Opgeslagen - ook in de DDownloader-app."
         : "Opgeslagen. Downloadmap is leeg, dus de app houdt de huidige map aan.",
       "ok"
     );
@@ -825,8 +825,8 @@ async function sendToApp() {
       const opened = await openInAndroidApp(url, formatEl.value);
       setStatus(
         opened
-          ? "Downloader-app geopend met deze URL."
-          : "Kon de Android-app niet openen. Installeer Downloader.",
+          ? "DDownloader-app geopend met deze URL."
+          : "Kon de Android-app niet openen. Installeer DDownloader.",
         opened ? "ok" : "error"
       );
     } finally {
@@ -1161,7 +1161,7 @@ debugRedetectBtn?.addEventListener("click", async () => {
           "error"
         );
       } else {
-        setStatus("Klaar. Tik Naar App om in de Downloader-app te openen.", "ok");
+        setStatus("Klaar. Tik Naar App om in de DDownloader-app te openen.", "ok");
       }
       return;
     }
@@ -1253,7 +1253,7 @@ debugRedetectBtn?.addEventListener("click", async () => {
       // herleiden is i.p.v. opnieuw te moeten reproduceren/uitzoeken.
       const detail = e && e.message ? ` (${e.message})` : "";
       setStatus(
-        `Downloader-app/native host niet gevonden op dit apparaat.${detail}`,
+        `DDownloader-app/native host niet gevonden op dit apparaat.${detail}`,
         "error"
       );
       showGithubLink(true);

@@ -1,14 +1,14 @@
-﻿; Downloader Windows installer (Inno Setup 6+)
+﻿; DDownloader Windows installer (Inno Setup 6+)
 ; Built by scripts\build-windows-installer.ps1
 
-#define MyAppName "Downloader"
-#define MyAppDirName "DownloaderD"
+#define MyAppName "DDownloader"
+#define MyAppDirName "DDownloaderD"
 #ifndef MyAppVersion
   #define MyAppVersion "2.4.0"
 #endif
-#define MyAppPublisher "Downloader"
-#define MyAppURL "https://github.com/redubbledd1-ops/Downloader"
-#define MyAppExeName "downoader.exe"
+#define MyAppPublisher "DDownloader"
+#define MyAppURL "https://github.com/redubbledd1-ops/DDownloader"
+#define MyAppExeName "DDownloader.exe"
 #ifndef MyExtensionId
   #define MyExtensionId "meecghmbaeipmpnopapdkknnjcgconeh"
 #endif
@@ -28,12 +28,12 @@ AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues
 AppUpdatesURL={#MyAppURL}/releases
 ; Always install under 32-bit Program Files so everything lives together:
-; {app}\downoader.exe, tools\, host\, extension\
+; {app}\DDownloader.exe, tools\, host\, extension\
 DefaultDirName={commonpf32}\{#MyAppDirName}
 DefaultGroupName={#MyAppDirName}
 DisableProgramGroupPage=yes
 OutputDir={#DistDir}
-OutputBaseFilename=DownloaderSetup-{#MyAppVersion}
+OutputBaseFilename=DDownloaderSetup-{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -43,7 +43,7 @@ PrivilegesRequired=admin
 UninstallDisplayIcon={app}\{#MyAppExeName}
 VersionInfoVersion={#MyAppVersion}.0
 VersionInfoCompany={#MyAppPublisher}
-VersionInfoDescription=Downloader — video/audio via yt-dlp
+VersionInfoDescription=DDownloader — video/audio via yt-dlp
 VersionInfoProductName={#MyAppName}
 VersionInfoCopyright=Copyright (C) 2026 {#MyAppPublisher}
 ; Without an Authenticode certificate Windows SmartScreen may still warn.
@@ -247,11 +247,11 @@ begin
   ExtPath := ExpandConstant('{app}\extension');
   Html :=
     '<!DOCTYPE html><html lang="nl"><head><meta charset="utf-8"/>' +
-    '<title>Downloader — extentie laden</title>' +
+    '<title>DDownloader — extentie laden</title>' +
     '<style>body{font-family:Segoe UI,sans-serif;max-width:42rem;margin:2rem auto;padding:0 1.25rem;line-height:1.5}' +
     'h1{font-size:1.4rem}h2{font-size:1.15rem;margin-top:1.35rem}.path{font-family:Consolas,monospace;background:#0001;padding:.35rem .55rem;border-radius:4px;word-break:break-all}' +
     'li{margin:.55rem 0}.note{opacity:.85;font-size:.95rem}</style></head><body>' +
-    '<h1>Downloader-extentie laden</h1>' +
+    '<h1>DDownloader-extentie laden</h1>' +
     '<p>Chrome, Edge en Firefox gebruiken <strong>dezelfde map</strong>. Browsers laten extenties niet stilzwijgend installeren — dit is eenmalig (~20 seconden).</p>' +
     '<p><strong>Chrome / Edge</strong></p>' +
     '<ol>' +
@@ -268,7 +268,7 @@ begin
     '</ol>' +
     '<p class="note">Firefox tijdelijke add-ons verdwijnen na een herstart van Firefox. Native messaging is al door deze installer geregistreerd als je Firefox hebt aangevinkt.</p>' +
     '<p><strong>Firefox voor Android</strong></p>' +
-    '<p class="note">Installeer de Downloader-APK. Gebruik daarna vanaf de pc: <code>scripts\run-firefox-android.ps1</code> (of web-ext met map <code>extension-firefox-android</code>). Op Android opent <strong>Naar App</strong> de Downloader-app.</p>' +
+    '<p class="note">Installeer de DDownloader-APK. Gebruik daarna vanaf de pc: <code>scripts\run-firefox-android.ps1</code> (of web-ext met map <code>extension-firefox-android</code>). Op Android opent <strong>Naar App</strong> de DDownloader-app.</p>' +
     '</body></html>';
   ForceDirectories(ExtractFileDir(Dest));
   SaveStringToFile(Dest, Html, False);
@@ -279,7 +279,7 @@ var
   PrefsPath, AppExe, DownloadDir, Params: string;
   ResultCode: Integer;
 begin
-  PrefsPath := ExpandConstant('{userappdata}\com.example\Downloader\shared_preferences.json');
+  PrefsPath := ExpandConstant('{userappdata}\com.example\DDownloader\shared_preferences.json');
   AppExe := ExpandConstant('{app}\{#MyAppExeName}');
   DownloadDir := Trim(DownloadDirPage.Values[0]);
   if DownloadDir = '' then
@@ -306,7 +306,7 @@ begin
   DownloadDirPage := CreateInputDirPage(
     wpSelectDir,
     'Download folder',
-    'Where should Downloader save video and audio files?',
+    'Where should DDownloader save video and audio files?',
     'Choose a download folder. You can change this later in the app settings.',
     False,
     ''

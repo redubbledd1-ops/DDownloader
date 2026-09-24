@@ -20,6 +20,8 @@ if (-not $HostExe) {
         (Join-Path $root "extension\host\downoader_native_host.exe"),
         (Join-Path $root "Release\host\downoader_native_host.exe"),
         (Join-Path $root "build\windows\x64\runner\Release\host\downoader_native_host.exe"),
+        "${env:ProgramFiles(x86)}\DDownloaderD\host\downoader_native_host.exe",
+        "${env:ProgramFiles}\DDownloaderD\host\downoader_native_host.exe",
         "${env:ProgramFiles(x86)}\DownloaderD\host\downoader_native_host.exe",
         "${env:ProgramFiles}\DownloaderD\host\downoader_native_host.exe",
         "${env:ProgramFiles}\Downloader\host\downoader_native_host.exe"
@@ -43,6 +45,10 @@ if (-not (Test-Path $HostExe)) {
 
 if (-not $AppExe) {
     $candidates = @(
+        (Join-Path $root "build\windows\x64\runner\Release\DDownloader.exe"),
+        (Join-Path $root "Release\DDownloader.exe"),
+        "${env:ProgramFiles(x86)}\DDownloaderD\DDownloader.exe",
+        "${env:ProgramFiles}\DDownloaderD\DDownloader.exe",
         (Join-Path $root "build\windows\x64\runner\Release\downoader.exe"),
         (Join-Path $root "Release\downoader.exe"),
         "${env:ProgramFiles(x86)}\DownloaderD\downoader.exe",
@@ -125,13 +131,16 @@ $ffJson = @"
 [System.IO.File]::WriteAllText($firefoxManifestPath, $ffJson)
 Write-Host "Firefox host-manifest: $firefoxManifestPath"
 
-# Prefs: app_exe + migrate download_dir from legacy folder (PowerShell, geen python)
-$prefsDir = Join-Path $env:APPDATA "com.example\Downloader"
+# Prefs: app_exe + migrate download_dir from legacy folders (PowerShell, geen python)
+$prefsDir = Join-Path $env:APPDATA "com.example\DDownloader"
 New-Item -ItemType Directory -Force -Path $prefsDir | Out-Null
 $prefsPath = Join-Path $prefsDir "shared_preferences.json"
-$legacyPath = Join-Path $env:APPDATA "com.example\downoader\shared_preferences.json"
+$legacyPaths = @(
+    (Join-Path $env:APPDATA "com.example\downoader\shared_preferences.json"),
+    (Join-Path $env:APPDATA "com.example\Downloader\shared_preferences.json")
+)
 $prefs = @{}
-foreach ($p in @($legacyPath, $prefsPath)) {
+foreach ($p in ($legacyPaths + @($prefsPath))) {
     if (-not (Test-Path $p)) { continue }
     try {
         $obj = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json

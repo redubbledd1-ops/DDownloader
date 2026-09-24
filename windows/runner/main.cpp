@@ -16,7 +16,7 @@ namespace {
 constexpr const wchar_t kSingleInstanceMutex[] =
     L"Local\\Downoader_SingleInstance";
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
-constexpr const wchar_t kWindowTitle[] = L"Downloader";
+constexpr const wchar_t kWindowTitle[] = L"DDownloader";
 
 std::wstring ExecutablePathOf(DWORD process_id) {
   HANDLE process =

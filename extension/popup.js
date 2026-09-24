@@ -9,6 +9,8 @@ const qualityField = document.getElementById("qualityField");
 const qualityRow = document.getElementById("qualityRow");
 const preferredQualityRow = document.getElementById("preferredQualityRow");
 const refreshBtn = document.getElementById("refresh");
+const debugToggleBtn = document.getElementById("debugToggle");
+const debugPanelEl = document.getElementById("debugPanel");
 const sendBtn = document.getElementById("sendToApp");
 const downloadBtn = document.getElementById("downloadHere");
 const autoDownloadEl = document.getElementById("autoDownload");
@@ -1060,6 +1062,12 @@ urlEl.addEventListener("input", () => {
     sendBtn.disabled = !urlEl.value.trim();
     downloadBtn.disabled = !urlEl.value.trim();
   }
+});
+
+debugToggleBtn?.addEventListener("click", () => {
+  const show = debugPanelEl.hidden;
+  debugPanelEl.hidden = !show;
+  debugToggleBtn.classList.toggle("active", show);
 });
 
 debugClearBtn?.addEventListener("click", () => {

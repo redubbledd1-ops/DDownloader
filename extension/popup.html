@@ -11,6 +11,7 @@
       <img src="icons/icon32.png" alt="" width="24" height="24" />
       <h1>Downloader</h1>
       <button id="refresh" type="button" class="header-refresh" title="Kwaliteiten ophalen">↻</button>
+      <button id="debugToggle" type="button" class="header-refresh" title="Debug-log tonen/verbergen">L</button>
     </header>
 
     <label class="field">
@@ -143,8 +144,7 @@
       </button>
     </details>
 
-    <details class="settings debug-panel" id="debugPanel">
-      <summary>Debug-log</summary>
+    <div class="debug-panel" id="debugPanel" hidden>
       <p class="hint">
         Laat zien wat de extentie/TikTok-detectie doet. Handig als downloads falen.
       </p>
@@ -154,7 +154,7 @@
         <button id="debugClear" type="button" class="ghost">Legen</button>
       </div>
       <pre id="debugLog" class="debug-log" aria-live="polite"></pre>
-    </details>
+    </div>
 
     <script src="popup.js"></script>
   </body>

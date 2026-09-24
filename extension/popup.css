@@ -381,7 +381,16 @@ button.chevron {
 }
 
 .debug-panel {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
   margin-top: 10px;
+}
+
+button.header-refresh.active {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
 }
 
 .debug-actions {
